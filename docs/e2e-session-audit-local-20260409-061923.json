@@ -1,0 +1,67 @@
+{
+  "startedAt": "2026-04-09T05:19:25.986Z",
+  "endpoint": "ws://localhost:9002",
+  "durationMs": 2500,
+  "minEvents": 1,
+  "strictChecklist": false,
+  "totals": {
+    "events": 1,
+    "categories": 1,
+    "severities": 1,
+    "schemaIssueEvents": 0,
+    "checklistHits": 1,
+    "checklistMissing": 35
+  },
+  "categories": [
+    "system"
+  ],
+  "severities": [
+    "info"
+  ],
+  "schemaIssues": [],
+  "checklist": {
+    "found": [
+      "Playback toggled"
+    ],
+    "missing": [
+      "Voice listening started",
+      "Voice listening stopped",
+      "Voice command recognized",
+      "Parsed HLS playlist",
+      "Parsed HLS master playlist",
+      "Built HLS variant playlist",
+      "Starting FFmpeg engine",
+      "FFmpeg demuxer connected",
+      "Unsupported codec",
+      "Configured VR format",
+      "VR render mode changed",
+      "Starting 2D to 3D conversion",
+      "Spatial probe completed",
+      "APMP format description updated",
+      "Audio sync offset changed",
+      "Lip-sync calibration changed",
+      "Head tracking changed",
+      "Room size changed",
+      "Atmos metadata updated",
+      "Downmix mode changed",
+      "Loading IPTV playlist",
+      "Loaded IPTV playlist",
+      "Fetched Xtream categories",
+      "Fetched Xtream streams",
+      "Loading EPG",
+      "Loaded EPG",
+      "Single tap toggled HUD",
+      "Double tap toggled cinema mode",
+      "Pinch gesture detected",
+      "Opening immersive space",
+      "Dismissing immersive space",
+      "Window geometry update failed",
+      "Parsing subtitle sidecar",
+      "Subtitle sidecar parsed",
+      "Playback advisory finalized"
+    ]
+  },
+  "samples": [
+    "Playback toggled"
+  ]
+}

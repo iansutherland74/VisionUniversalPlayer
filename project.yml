@@ -1,0 +1,74 @@
+name: VisionUniversalPlayer
+options:
+  createIntermediateGroups: true
+configs:
+  Debug: debug
+  Release: release
+settings:
+  base:
+    PRODUCT_BUNDLE_IDENTIFIER: com.company.visionuniversalplayer
+    SWIFT_VERSION: 5.9
+    SUPPORTS_MACCATALYST: NO
+    TARGETED_DEVICE_FAMILY: 7
+    SWIFT_OBJC_BRIDGING_HEADER: VisionUniversalPlayer-Bridging-Header.h
+    # Base header search paths (for FFmpeg includes on device builds)
+    HEADER_SEARCH_PATHS:
+      - $(inherited)
+      # Add FFmpeg header paths here when visionOS binaries are available:
+      # - /path/to/ffmpeg-visionos/include
+      # - /opt/homebrew/include
+    # Base library search paths (for FFmpeg linking on device builds)
+    LIBRARY_SEARCH_PATHS:
+      - $(inherited)
+      # Add FFmpeg library paths here when visionOS binaries are available:
+      # - /path/to/ffmpeg-visionos/lib
+      # - /opt/homebrew/lib
+    # Conditional linking: only link FFmpeg for device, not simulator
+    # On device: -lavformat -lavcodec -lavutil
+    # On simulator: empty (uses stub implementation)
+    OTHER_LDFLAGS: $(inherited)
+targets:
+  VisionUniversalPlayer:
+    type: application
+    platform: visionOS
+    deploymentTarget: "2.0"
+    sources:
+      - path: .
+        excludes:
+          - docs
+          - scripts
+          - UI/UnifiedPlayerScreen.swift
+          - "*.md"
+          - "*.json"
+          - "*.sh"
+          - "*.mjs"
+          - project.yml
+          - "**/.DS_Store"
+    settings:
+      base:
+        INFOPLIST_FILE: Info.plist
+        PRODUCT_NAME: VisionUniversalPlayer
+      # Device-specific settings: Link FFmpeg libraries for real device builds
+      # Simulator builds will use stub implementations (no FFmpeg linking needed)
+      # To activate device FFmpeg:
+      # 1. Uncomment the LIBRARY_SEARCH_PATHS above with path to visionOS FFmpeg libs
+      # 2. Uncomment the HEADER_SEARCH_PATHS above with path to visionOS FFmpeg include
+      # 3. Add device-specific config section here with: OTHER_LDFLAGS: -lavformat -lavcodec -lavutil -lpthread
+      # Example:
+      # Device: 
+      #   OTHER_LDFLAGS: 
+      #     - $(inherited)
+      #     - -lavformat
+      #     - -lavcodec
+      #     - -lavutil
+      #     - -lpthread
+    dependencies: []
+schemes:
+  VisionUniversalPlayer:
+    build:
+      targets:
+        VisionUniversalPlayer: all
+    run:
+      config: Debug
+    archive:
+      config: Release

@@ -1,0 +1,4 @@
+module FFmpegBridge {
+    header "FFmpegBridge.h"
+    export *
+}
