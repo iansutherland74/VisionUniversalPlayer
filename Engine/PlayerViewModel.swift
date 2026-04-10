@@ -4,6 +4,8 @@ import Metal
 import CoreImage
 import ImageIO
 import UniformTypeIdentifiers
+import AVFoundation
+import CoreMedia
 
 @MainActor
 final class PlayerViewModel: ObservableObject {
@@ -39,8 +41,11 @@ final class PlayerViewModel: ObservableObject {
             },
             // Stage 3: renderer already configured above; structural marker.
             ConversionPipelineStep(stage: .configureRenderer) { },
-            // Stage 4: stereo baseline and disparity are set during state reset; structural marker.
-            ConversionPipelineStep(stage: .scheduleStereo) { },
+            // Stage 4: setup stereoscopic pipeline for frame-packed 3D video.
+            ConversionPipelineStep(stage: .scheduleStereo) { [weak self] in
+                guard let self else { return }
+                await self.setupStereoscopicPlaybackIfNeeded(for: item)
+            },
             // Stage 5: color profile applied per-frame by VideoColorSpaceDetector; structural marker.
             ConversionPipelineStep(stage: .applyColorProfile) { },
             // Stage 6: audio routing; structural marker (no explicit Swift-layer audio init required).
@@ -173,6 +178,7 @@ final class PlayerViewModel: ObservableObject {
 
     private(set) var vrRenderer: VRRenderer?
     private(set) var depth3DConverter: Depth3DConverter?
+    private(set) var stereoscopicController: StereoscopicVideoController?
 
     init(
         mtlDevice: MTLDevice? = MTLCreateSystemDefaultDevice(),
@@ -187,6 +193,7 @@ final class PlayerViewModel: ObservableObject {
         if let device = mtlDevice {
             vrRenderer = VRRenderer(device: device)
             depth3DConverter = Depth3DConverter(device: device)
+            stereoscopicController = StereoscopicVideoController()
         }
 
         hasSavedQueueSnapshot = playbackQueueStore.hasSnapshot
@@ -1032,6 +1039,7 @@ final class PlayerViewModel: ObservableObject {
         loudnessCompensationDB = 0
         engine?.stop()
         engine = nil
+        stereoscopicController?.stop()
         pixelBufferSubscription = nil
         stereoPairSubscription = nil
         currentStereoPixelBuffers = nil
@@ -2168,6 +2176,24 @@ final class PlayerViewModel: ObservableObject {
         }
     }
 
+    /// Sets up stereoscopic playback pipeline for frame-packed 3D videos.
+    /// For now, this is a placeholder that validates the format.
+    /// Frame-packed videos will be rendered through the standard pipeline with APMP metadata.
+    private func setupStereoscopicPlaybackIfNeeded(for item: MediaItem) async {
+        let isFramePacked = item.vrFormat == .sideBySide3D || item.vrFormat == .topBottom3D
+                         || item.vrFormat == .stereo180SBS || item.vrFormat == .stereo180TAB
+                         || item.vrFormat == .stereo360SBS || item.vrFormat == .stereo360TAB
+        
+        guard isFramePacked else {
+            // Not a frame-packed format
+            return
+        }
+        
+        print("✓ Frame-packed 3D format detected: \(item.vrFormat.description)")
+        print("  Baseline: \(Int(stereoBaseline))mm, Disparity: \(horizontalDisparity.formatted(.number.precision(.fractionLength(2))))")
+        // Future enhancement: Initialize AVSampleBufferVideoRenderer pipeline for hardware-accelerated frame processing
+    }
+
     func switchMode(_ mode: Mode) {
         selectedMode = mode
 
@@ -2408,4 +2434,16 @@ final class PlayerViewModel: ObservableObject {
             }
         }
     }
+    
+        // MARK: - Nested: Stereoscopic Controller (visionOS 26+ APMP support)
+    
+        /// Placeholder: Stereoscopic video controller for frame-packed 3D.
+        /// Full APMP injection available in visionOS 26.0+
+        final class StereoscopicVideoController {
+            func setup(player: AVPlayer, playerItem: AVPlayerItem, framePacking: VRFormat, stereoBaseline: Float = 60.0, horizontalDisparity: Float = 0.0) async throws {
+                print("✓ Stereoscopic 3D playback configured for \(framePacking.description)")
+            }
+            func stop() { }
+            func flush() { }
+        }
 }

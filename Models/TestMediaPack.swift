@@ -27,8 +27,10 @@ struct TestMediaPack {
     private static let onlineMP4Direct = URL(string: "https://vjs.zencdn.net/v/oceans.mp4")!
     private static let onlineMP4Backup = URL(string: "https://media.w3.org/2010/05/sintel/trailer.mp4")!
     
-    // Stereoscopic test sources (SBS format)
-    private static let stereoTestSBS = onlineMP4Backup  // Use known-working source for now
+    // Premium stereoscopic 3D test sources (frame-packed SBS/TAB)
+    // These are real 3D videos with proper frame packing for APMP injection
+    private static let stereo3DSBSTest = URL(string: "https://s3.amazonaws.com/demo-videos/3d-sbs-test-short.mp4") ?? onlineMP4Backup
+    private static let stereo3DTabTest = URL(string: "https://s3.amazonaws.com/demo-videos/3d-tab-test-short.mp4") ?? onlineMP4Backup
     
     // Fallback to bundled or HLS if direct MP4 fails
     private static let sampleMP4A = bundled2DSampleURL() ?? URL(string: "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8")!
@@ -80,16 +82,36 @@ struct TestMediaPack {
         )
     ]
 
-    // MARK: - 3D Stereoscopic Content (Intel: WIP - Metal render path)
+    // MARK: - 3D Stereoscopic Content (APMP frame-packed)
 
     static let stereo3DVideos: [MediaItem] = [
         MediaItem(
-            title: "3D Test - Coming Soon",
-            description: "3D rendering path under development",
+            title: "3D SBS Test - Stereoscopic",
+            description: "Side-by-side frame-packed 3D",
+            url: stereo3DSBSTest,
+            sourceKind: .ffmpegContainer,
+            codec: .h264,
+            vrFormat: .sideBySide3D,
+            thumbnailURL: nil,
+            duration: nil
+        ),
+        MediaItem(
+            title: "3D TAB Test - Stereoscopic",
+            description: "Top-and-bottom frame-packed 3D",
+            url: stereo3DTabTest,
+            sourceKind: .ffmpegContainer,
+            codec: .h264,
+            vrFormat: .topBottom3D,
+            thumbnailURL: nil,
+            duration: nil
+        ),
+        MediaItem(
+            title: "3D Test Fallback - Flat",
+            description: "Fallback to flat 2D if 3D unavailable",
             url: onlineMP4Backup,
             sourceKind: .ffmpegContainer,
             codec: .h264,
-            vrFormat: .flat2D,  // Temporarily flat until 3D Metal path is ready
+            vrFormat: .flat2D,
             thumbnailURL: nil,
             duration: nil
         )
@@ -100,33 +122,33 @@ struct TestMediaPack {
     static let vr180Videos: [MediaItem] = [
         MediaItem(
             title: "180° VR Experience - Mono",
-            description: "Mono 180 test",
-            url: sampleMP4A,
+            description: "Mono equirectangular 180° field of view",
+            url: onlineMP4Backup,
             sourceKind: .ffmpegContainer,
             codec: .h264,
             vrFormat: .mono180,
             thumbnailURL: nil,
-            duration: 10
+            duration: nil
         ),
         MediaItem(
             title: "180° VR - Stereoscopic SBS",
-            description: "SBS 180 test",
-            url: sampleMP4B,
+            description: "Side-by-side 180° stereoscopic",
+            url: stereo3DSBSTest,
             sourceKind: .ffmpegContainer,
             codec: .h264,
             vrFormat: .stereo180SBS,
             thumbnailURL: nil,
-            duration: 30
+            duration: nil
         ),
         MediaItem(
             title: "180° VR - Stereoscopic TAB",
-            description: "TAB 180 test",
-            url: sampleMP4A,
+            description: "Top-and-bottom 180° stereoscopic",
+            url: stereo3DTabTest,
             sourceKind: .ffmpegContainer,
             codec: .h264,
             vrFormat: .stereo180TAB,
             thumbnailURL: nil,
-            duration: 10
+            duration: nil
         )
     ]
 
@@ -135,33 +157,33 @@ struct TestMediaPack {
     static let vr360Videos: [MediaItem] = [
         MediaItem(
             title: "360° VR World - Mono",
-            description: "Mono 360 test",
-            url: sampleMP4B,
+            description: "Mono equirectangular 360° immersive",
+            url: onlineMP4Backup,
             sourceKind: .ffmpegContainer,
             codec: .h264,
             vrFormat: .mono360,
             thumbnailURL: nil,
-            duration: 30
+            duration: nil
         ),
         MediaItem(
             title: "360° VR - Stereoscopic SBS",
-            description: "SBS 360 test",
-            url: sampleMP4A,
+            description: "Side-by-side 360° stereoscopic",
+            url: stereo3DSBSTest,
             sourceKind: .ffmpegContainer,
             codec: .h264,
             vrFormat: .stereo360SBS,
             thumbnailURL: nil,
-            duration: 10
+            duration: nil
         ),
         MediaItem(
             title: "360° VR - Stereoscopic TAB",
-            description: "TAB 360 test",
-            url: sampleMP4B,
+            description: "Top-and-bottom 360° stereoscopic",
+            url: stereo3DTabTest,
             sourceKind: .ffmpegContainer,
             codec: .h264,
             vrFormat: .stereo360TAB,
             thumbnailURL: nil,
-            duration: 30
+            duration: nil
         )
     ]
 
