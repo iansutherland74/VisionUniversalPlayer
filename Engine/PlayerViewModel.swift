@@ -868,6 +868,16 @@ final class PlayerViewModel: ObservableObject {
                 var candidates: [(engine: VideoOutputEngine, pathLabel: String, timeoutNanoseconds: UInt64)] = [
                     (AVFoundationEngine(), "System (AVFoundation)", timeout)
                 ]
+                // Local bundled/container files are most reliable through AVFoundation on visionOS.
+                if item.url.isFileURL {
+                    if ffmpegBridgeAvailable {
+                        candidates.append((initialEngine, "HW (VideoToolbox)", timeout))
+                    }
+                    if ffmpegSoftwareBridgeAvailable {
+                        candidates.append((FFmpegSoftwareEngine(), "SW (FFmpeg)", timeout))
+                    }
+                    return candidates
+                }
                 if ffmpegBridgeAvailable {
                     candidates.insert((initialEngine, "HW (VideoToolbox)", timeout), at: 0)
                 }
@@ -2131,46 +2141,55 @@ final class PlayerViewModel: ObservableObject {
         switch format {
         case .flat2D:
             selectedMode = .flat
+            renderSurface = .standard
             vrRenderer?.setRenderMode(.flatQuad)
             vrRenderer?.stereoscopicMode = .mono
 
         case .sideBySide3D:
             selectedMode = .sbs
+            renderSurface = .visionMetal
             vrRenderer?.setRenderMode(.flatQuad)
             vrRenderer?.stereoscopicMode = .sideBySide
 
         case .topBottom3D:
             selectedMode = .tab
+            renderSurface = .visionMetal
             vrRenderer?.setRenderMode(.flatQuad)
             vrRenderer?.stereoscopicMode = .topAndBottom
 
         case .mono180:
             selectedMode = .vr180
+            renderSurface = .immersive
             vrRenderer?.setRenderMode(.hemisphere180)
             vrRenderer?.stereoscopicMode = .mono
 
         case .stereo180SBS:
             selectedMode = .vr180
+            renderSurface = .immersive
             vrRenderer?.setRenderMode(.hemisphere180)
             vrRenderer?.stereoscopicMode = .sideBySide
 
         case .stereo180TAB:
             selectedMode = .vr180
+            renderSurface = .immersive
             vrRenderer?.setRenderMode(.hemisphere180)
             vrRenderer?.stereoscopicMode = .topAndBottom
 
         case .mono360:
             selectedMode = .vr360
+            renderSurface = .immersive
             vrRenderer?.setRenderMode(.sphere360)
             vrRenderer?.stereoscopicMode = .mono
 
         case .stereo360SBS:
             selectedMode = .vr360
+            renderSurface = .immersive
             vrRenderer?.setRenderMode(.sphere360)
             vrRenderer?.stereoscopicMode = .sideBySide
 
         case .stereo360TAB:
             selectedMode = .vr360
+            renderSurface = .immersive
             vrRenderer?.setRenderMode(.sphere360)
             vrRenderer?.stereoscopicMode = .topAndBottom
         }
