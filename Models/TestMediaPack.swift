@@ -47,7 +47,7 @@ struct TestMediaPack {
     
     // Premium stereoscopic 3D test sources (frame-packed SBS/TAB)
     // These are real 3D videos with proper frame packing for APMP injection
-    private static let stereo3DFlatSBSTest = bundledLocalSampleURL("sample_3d_flat_sbs.mp4") ?? URL(string: "https://s3.amazonaws.com/demo-videos/3d-sbs-test-short.mp4") ?? onlineMP4Backup
+    private static let stereo3DFlatSBSTest = onlineMP4Direct
     private static let stereo3DFlatTABTest = bundledLocalSampleURL("sample_3d_flat_tab.mp4") ?? URL(string: "https://s3.amazonaws.com/demo-videos/3d-tab-test-short.mp4") ?? onlineMP4Backup
     private static let stereo3D180SBSTest = bundledLocalSampleURL("sample_3d_180_sbs.mp4") ?? stereo3DFlatSBSTest
     private static let stereo3D180TABTest = bundledLocalSampleURL("sample_3d_180_tab.mp4") ?? stereo3DFlatTABTest
@@ -109,7 +109,7 @@ struct TestMediaPack {
     static let stereo3DVideos: [MediaItem] = [
         MediaItem(
             title: "3D SBS Test - Stereoscopic",
-            description: "Side-by-side frame-packed 3D",
+            description: "SBS mode over system Oceans MP4 path",
             url: stereo3DFlatSBSTest,
             sourceKind: .ffmpegContainer,
             codec: .h264,

@@ -789,7 +789,12 @@ final class PlayerViewModel: ObservableObject {
         case .ffmpegContainer:
             switch item.codec {
             case .h264, .hevc:
-                nextEngine = FFmpegEngine()
+                if item.vrFormat.isStereoscopic {
+                    // Use the same stable system path as the working Oceans MP4 playback.
+                    nextEngine = AVFoundationEngine()
+                } else {
+                    nextEngine = FFmpegEngine()
+                }
             case .av1, .vp9, .vp8, .mpeg2:
                 nextEngine = AVFoundationEngine()
             }
