@@ -60,6 +60,14 @@ struct RootView: View {
                 }
             }
         }
+        #if os(visionOS)
+        .onChange(of: sceneCoordinator.playerWindowVisible) { _, visible in
+            if visible {
+                // Prefer dedicated player window when it is ready.
+                showingPlayer = false
+            }
+        }
+        #endif
     }
 
     private var vodBrowser: some View {
@@ -179,6 +187,9 @@ struct RootView: View {
         }
         selectedItem = item
         #if os(visionOS)
+        // Open an immediate in-window fallback so Play Now always presents a player,
+        // even if multi-window opening is delayed.
+        showingPlayer = true
         sceneCoordinator.selectedPlayerItem = item
         requestPlayerWindowOpen(for: item)
         #else
