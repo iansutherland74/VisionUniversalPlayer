@@ -60,10 +60,7 @@ final class AVFoundationEngine: NSObject, VideoOutputEngine {
 
         let playerItem = AVPlayerItem(url: item.url)
         let outputSettings: [String: Any] = [
-            kCVPixelBufferPixelFormatTypeKey as String: [
-                kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange,
-                kCVPixelFormatType_420YpCbCr8BiPlanarFullRange
-            ]
+            kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_420YpCbCr8BiPlanarFullRange
         ]
         let output = AVPlayerItemVideoOutput(pixelBufferAttributes: outputSettings)
         playerItem.add(output)
@@ -332,13 +329,23 @@ final class AVFoundationEngine: NSObject, VideoOutputEngine {
                 playbackTimeSubject.send(currentTime.seconds)
             }
 
-                // Use the host-clock-aligned item time so the output vends the frame
-                // that should be displayed RIGHT NOW, not the raw playback position.
+                // Prefer host-clock-aligned item time, then fall back to current media time.
                 let hostTime = CACurrentMediaTime()
                 let displayItemTime = output.itemTime(forHostTime: hostTime)
-                let queryTime = displayItemTime.isValid ? displayItemTime : currentTime
-                if output.hasNewPixelBuffer(forItemTime: queryTime),
-                   let pixelBuffer = output.copyPixelBuffer(forItemTime: queryTime, itemTimeForDisplay: nil) {
+
+                var pixelBuffer: CVPixelBuffer?
+                if displayItemTime.isValid,
+                   output.hasNewPixelBuffer(forItemTime: displayItemTime) {
+                    pixelBuffer = output.copyPixelBuffer(forItemTime: displayItemTime, itemTimeForDisplay: nil)
+                }
+
+                if pixelBuffer == nil,
+                   currentTime.isNumeric,
+                   output.hasNewPixelBuffer(forItemTime: currentTime) {
+                    pixelBuffer = output.copyPixelBuffer(forItemTime: currentTime, itemTimeForDisplay: nil)
+                }
+
+                if let pixelBuffer {
                     if !sentInitialConnected {
                         sentInitialConnected = true
                         stallAttempt = 0
