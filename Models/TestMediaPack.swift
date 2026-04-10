@@ -23,6 +23,11 @@ struct TestMediaPack {
 
     // MARK: - Shared URLs (verified reachable)
 
+    // Online direct MP4 sources for testing without bundled fallback
+    private static let onlineMP4Direct = URL(string: "https://vjs.zencdn.net/v/oceans.mp4")!
+    private static let onlineMP4Backup = URL(string: "https://media.w3.org/2010/05/sintel/trailer.mp4")!
+    
+    // Fallback to bundled or HLS if direct MP4 fails
     private static let sampleMP4A = bundled2DSampleURL() ?? URL(string: "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8")!
     private static let sampleMP4B = bundled2DSampleURL() ?? URL(string: "https://devstreaming-cdn.apple.com/videos/streaming/examples/img_bipbop_adv_example_ts/master.m3u8")!
     private static let sampleHLS = URL(string: "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8")!
@@ -31,8 +36,28 @@ struct TestMediaPack {
 
     static let flat2DVideos: [MediaItem] = [
         MediaItem(
+            title: "Oceans (Online MP4)",
+            description: "Direct MP4 stream - 64s",
+            url: onlineMP4Direct,
+            sourceKind: .ffmpegContainer,
+            codec: .h264,
+            vrFormat: .flat2D,
+            thumbnailURL: nil,
+            duration: nil
+        ),
+        MediaItem(
+            title: "Sintel Trailer (Online MP4)",
+            description: "Direct MP4 stream - 52s",
+            url: onlineMP4Backup,
+            sourceKind: .ffmpegContainer,
+            codec: .h264,
+            vrFormat: .flat2D,
+            thumbnailURL: nil,
+            duration: nil
+        ),
+        MediaItem(
             title: "Standard 2D Movie",
-            description: "Flat 2D local sample",
+            description: "Flat 2D fallback",
             url: sampleMP4A,
             sourceKind: .ffmpegContainer,
             codec: .h264,
@@ -42,7 +67,7 @@ struct TestMediaPack {
         ),
         MediaItem(
             title: "2D Documentary",
-            description: "Flat 2D local sample",
+            description: "Flat 2D fallback",
             url: sampleMP4B,
             sourceKind: .ffmpegContainer,
             codec: .h264,
