@@ -322,6 +322,27 @@ struct PlayerScreen: View {
                     await playerViewModel.playMedia(item)
                 }
             }
+
+            #if os(visionOS)
+            // SBS/TAB true stereo is rendered through the immersive APMP pipeline.
+            // Enter immersive automatically for stereoscopic items so playback path is correct.
+            if item.vrFormat.isStereoscopic,
+               sceneCoordinator.isImmersiveOpen == false,
+               sceneCoordinator.isImmersiveTransitioning == false {
+                await sceneCoordinator.openImmersiveSpace {
+                    let result = await openImmersiveSpace(id: SceneCoordinator.immersivePlayerID)
+                    switch result {
+                    case .opened:
+                        return true
+                    case .error, .userCancelled:
+                        return false
+                    @unknown default:
+                        return false
+                    }
+                }
+            }
+            #endif
+
             applySavedSubtitlePresetForCurrentLanguage()
         }
         .onDisappear {
