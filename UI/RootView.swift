@@ -20,6 +20,17 @@ struct RootView: View {
         favoritesStore.favorites(from: allLibraryItems)
     }
 
+    private var playerSheetBinding: Binding<Bool> {
+        #if os(visionOS)
+        if supportsMultipleWindows {
+            return .constant(false)
+        }
+        return $showingPlayer
+        #else
+        return $showingPlayer
+        #endif
+    }
+
     var body: some View {
         TabView {
             vodBrowser
@@ -53,7 +64,7 @@ struct RootView: View {
                 }
             #endif
         }
-        .sheet(isPresented: $showingPlayer) {
+        .sheet(isPresented: playerSheetBinding) {
             if let selectedItem {
                 NavigationStack {
                     PlayerScreen(item: selectedItem, playerViewModel: playerViewModel)
@@ -63,7 +74,6 @@ struct RootView: View {
         #if os(visionOS)
         .onChange(of: sceneCoordinator.playerWindowVisible) { _, visible in
             if visible {
-                // Prefer dedicated player window when it is ready.
                 showingPlayer = false
             }
         }
@@ -187,10 +197,8 @@ struct RootView: View {
         }
         selectedItem = item
         #if os(visionOS)
-        // Open an immediate in-window fallback so Play Now always presents a player,
-        // even if multi-window opening is delayed.
-        showingPlayer = true
         sceneCoordinator.selectedPlayerItem = item
+        sceneCoordinator.shouldShowPlayerWindow = true
         requestPlayerWindowOpen(for: item)
         #else
         selectedItem = item
@@ -204,7 +212,7 @@ struct RootView: View {
         sceneCoordinator.playerWindowRequestToken = requestToken
 
         func request(attempt: Int) {
-            DispatchQueue.main.asyncAfter(deadline: .now() + (attempt == 0 ? 0 : 0.2)) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + (attempt == 0 ? 0 : 0.25)) {
                 guard self.sceneCoordinator.playerWindowRequestToken == requestToken else {
                     DebugCategory.navigation.infoLog(
                         "RootView skipped stale player-window open request",
@@ -251,12 +259,13 @@ struct RootView: View {
                     }
                 }
 
-                if attempt < 2 {
+                if attempt < 5 {
                     request(attempt: attempt + 1)
                 } else {
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
                         if !self.sceneCoordinator.playerWindowVisible {
-                            self.showingPlayer = true
+                            self.sceneCoordinator.shouldShowPlayerWindow = true
+                            self.openWindow(id: SceneCoordinator.playerWindowID)
                             DebugCategory.navigation.errorLog(
                                 "Player window failed to become visible after retries",
                                 context: ["title": item.title]
