@@ -21,6 +21,24 @@ struct TestMediaPack {
         return candidates.first { $0.lastPathComponent == "sample_2d_local.mp4" }
     }
 
+    private static func bundledLocalSampleURL(_ fileName: String) -> URL? {
+        let parts = fileName.split(separator: ".", maxSplits: 1).map(String.init)
+        guard parts.count == 2 else { return nil }
+        let name = parts[0]
+        let ext = parts[1]
+
+        if let direct = Bundle.main.url(forResource: name, withExtension: ext, subdirectory: "LocalSamples") {
+            return direct
+        }
+
+        if let direct = Bundle.main.url(forResource: name, withExtension: ext) {
+            return direct
+        }
+
+        let candidates = Bundle.main.urls(forResourcesWithExtension: ext, subdirectory: "LocalSamples") ?? []
+        return candidates.first { $0.lastPathComponent == fileName }
+    }
+
     // MARK: - Shared URLs (verified reachable)
 
     // Online direct MP4 sources for testing without bundled fallback
@@ -29,8 +47,12 @@ struct TestMediaPack {
     
     // Premium stereoscopic 3D test sources (frame-packed SBS/TAB)
     // These are real 3D videos with proper frame packing for APMP injection
-    private static let stereo3DSBSTest = URL(string: "https://s3.amazonaws.com/demo-videos/3d-sbs-test-short.mp4") ?? onlineMP4Backup
-    private static let stereo3DTabTest = URL(string: "https://s3.amazonaws.com/demo-videos/3d-tab-test-short.mp4") ?? onlineMP4Backup
+    private static let stereo3DFlatSBSTest = bundledLocalSampleURL("sample_3d_flat_sbs.mp4") ?? URL(string: "https://s3.amazonaws.com/demo-videos/3d-sbs-test-short.mp4") ?? onlineMP4Backup
+    private static let stereo3DFlatTABTest = bundledLocalSampleURL("sample_3d_flat_tab.mp4") ?? URL(string: "https://s3.amazonaws.com/demo-videos/3d-tab-test-short.mp4") ?? onlineMP4Backup
+    private static let stereo3D180SBSTest = bundledLocalSampleURL("sample_3d_180_sbs.mp4") ?? stereo3DFlatSBSTest
+    private static let stereo3D180TABTest = bundledLocalSampleURL("sample_3d_180_tab.mp4") ?? stereo3DFlatTABTest
+    private static let stereo3D360SBSTest = bundledLocalSampleURL("sample_3d_360_sbs.mp4") ?? stereo3DFlatSBSTest
+    private static let stereo3D360TABTest = bundledLocalSampleURL("sample_3d_360_tab.mp4") ?? stereo3DFlatTABTest
     
     // Fallback to bundled or HLS if direct MP4 fails
     private static let sampleMP4A = bundled2DSampleURL() ?? URL(string: "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8")!
@@ -88,7 +110,7 @@ struct TestMediaPack {
         MediaItem(
             title: "3D SBS Test - Stereoscopic",
             description: "Side-by-side frame-packed 3D",
-            url: stereo3DSBSTest,
+            url: stereo3DFlatSBSTest,
             sourceKind: .ffmpegContainer,
             codec: .h264,
             vrFormat: .sideBySide3D,
@@ -98,7 +120,7 @@ struct TestMediaPack {
         MediaItem(
             title: "3D TAB Test - Stereoscopic",
             description: "Top-and-bottom frame-packed 3D",
-            url: stereo3DTabTest,
+            url: stereo3DFlatTABTest,
             sourceKind: .ffmpegContainer,
             codec: .h264,
             vrFormat: .topBottom3D,
@@ -133,7 +155,7 @@ struct TestMediaPack {
         MediaItem(
             title: "180° VR - Stereoscopic SBS",
             description: "Side-by-side 180° stereoscopic",
-            url: stereo3DSBSTest,
+            url: stereo3D180SBSTest,
             sourceKind: .ffmpegContainer,
             codec: .h264,
             vrFormat: .stereo180SBS,
@@ -143,7 +165,7 @@ struct TestMediaPack {
         MediaItem(
             title: "180° VR - Stereoscopic TAB",
             description: "Top-and-bottom 180° stereoscopic",
-            url: stereo3DTabTest,
+            url: stereo3D180TABTest,
             sourceKind: .ffmpegContainer,
             codec: .h264,
             vrFormat: .stereo180TAB,
@@ -168,7 +190,7 @@ struct TestMediaPack {
         MediaItem(
             title: "360° VR - Stereoscopic SBS",
             description: "Side-by-side 360° stereoscopic",
-            url: stereo3DSBSTest,
+            url: stereo3D360SBSTest,
             sourceKind: .ffmpegContainer,
             codec: .h264,
             vrFormat: .stereo360SBS,
@@ -178,7 +200,7 @@ struct TestMediaPack {
         MediaItem(
             title: "360° VR - Stereoscopic TAB",
             description: "Top-and-bottom 360° stereoscopic",
-            url: stereo3DTabTest,
+            url: stereo3D360TABTest,
             sourceKind: .ffmpegContainer,
             codec: .h264,
             vrFormat: .stereo360TAB,
@@ -246,6 +268,12 @@ struct TestMediaPack {
     // MARK: - Grouped by Category
 
     static let groupedMedia: [(category: String, items: [MediaItem])] = [
+        ("3D Type: Flat SBS", mediaByFormat(.sideBySide3D)),
+        ("3D Type: Flat TAB", mediaByFormat(.topBottom3D)),
+        ("3D Type: 180 SBS", mediaByFormat(.stereo180SBS)),
+        ("3D Type: 180 TAB", mediaByFormat(.stereo180TAB)),
+        ("3D Type: 360 SBS", mediaByFormat(.stereo360SBS)),
+        ("3D Type: 360 TAB", mediaByFormat(.stereo360TAB)),
         ("2D Flat", flat2DVideos),
         ("3D Stereoscopic", stereo3DVideos),
         ("180° VR", vr180Videos),
