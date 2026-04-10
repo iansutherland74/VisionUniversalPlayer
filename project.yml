@@ -11,6 +11,9 @@ settings:
     SUPPORTS_MACCATALYST: NO
     TARGETED_DEVICE_FAMILY: 7
     SWIFT_OBJC_BRIDGING_HEADER: VisionUniversalPlayer-Bridging-Header.h
+    DEVELOPMENT_TEAM: C7PZLLC2HY
+    CODE_SIGN_STYLE: Automatic
+    CODE_SIGN_IDENTITY: "Apple Development"
     # Base header search paths (for FFmpeg includes on device builds)
     HEADER_SEARCH_PATHS:
       - $(inherited)

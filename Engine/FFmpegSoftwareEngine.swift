@@ -41,6 +41,13 @@ final class FFmpegSoftwareEngine: VideoOutputEngine {
         isRunning = true
         pendingStartAtSeconds = startAtSeconds
         transportStatusSubject.send(.connecting)
+        if ffmpeg_sw_bridge_is_available() == 0 {
+            let message = "FFmpeg software bridge unavailable in this build"
+            transportStatusSubject.send(.failed(message: message))
+            await DebugCategory.demuxer.errorLog(message)
+            isRunning = false
+            return
+        }
         await DebugCategory.demuxer.infoLog(
             "Starting FFmpeg software engine",
             context: [

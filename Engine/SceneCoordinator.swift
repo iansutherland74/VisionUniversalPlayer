@@ -9,9 +9,19 @@ final class SceneCoordinator: ObservableObject {
     }
 
     static let immersivePlayerID = "ImmersivePlayer"
+    static let mainWindowID = "MainWindow"
     static let spotlightWindowID = "FavoriteSpotlight"
+    static let playerWindowID = "PlayerWindowV2"
+    static let snapshotWindowID = "SnapshotGalleryWindow"
+    static let playerSettingsWindowID = "PlayerSettings"
+    static let vrControlsWindowID = "VRControls"
 
+    @Published var selectedPlayerItem: MediaItem?
+    @Published var playerWindowVisible: Bool = false
+    @Published var playerWindowRequestToken = UUID()
     @Published private(set) var immersiveState: ImmersiveState = .closed
+    @Published var shouldShowPlayerWindow: Bool = false  // Only show window if explicitly opened
+    @Published var hasInitializedWindows: Bool = false  // Track if we've dismissed restored windows
 
     var isImmersiveOpen: Bool {
         immersiveState == .open

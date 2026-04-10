@@ -29,6 +29,13 @@
 	</dict>
 	<key>UIMainStoryboardFile</key>
 	<string></string>
+	<key>UIApplicationSupportsMultipleScenes</key>
+	<true/>
+	<key>UIApplicationSceneManifest</key>
+	<dict>
+		<key>UIApplicationSupportsMultipleScenes</key>
+		<true/>
+	</dict>
 	<key>UIRequiredDeviceCapabilities</key>
 	<array>
 		<string>arkit</string>

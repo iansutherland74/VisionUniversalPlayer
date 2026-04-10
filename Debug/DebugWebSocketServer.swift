@@ -13,6 +13,9 @@ final class DebugWebSocketServer: DebugObserver {
     private var relaySocket: URLSessionWebSocketTask?
     private var urlSession: URLSession?
     private let queue = DispatchQueue(label: "com.vision.websocket", qos: .default)
+    private var isReconnecting = false
+    private var reconnectAttempts = 0
+    private static let maxReconnectAttempts = 5
     
     private init() {
         #if DEBUG
@@ -42,7 +45,13 @@ final class DebugWebSocketServer: DebugObserver {
 
     private func connectToExtensionRelay() {
         guard isRunning else { return }
+        guard reconnectAttempts < Self.maxReconnectAttempts else {
+            // Relay unreachable (physical device without tunnel). Stop trying.
+            isRunning = false
+            return
+        }
 
+        urlSession?.invalidateAndCancel()
         let config = URLSessionConfiguration.default
         config.timeoutIntervalForRequest = 5
         config.timeoutIntervalForResource = 60
@@ -53,20 +62,23 @@ final class DebugWebSocketServer: DebugObserver {
 
         let socket = session.webSocketTask(with: relayURL)
         relaySocket = socket
+        reconnectAttempts += 1
         socket.resume()
-
-        DispatchQueue.main.async {
-            DebugCategory.system.infoLog(
-                "Attempting websocket relay connection",
-                context: ["url": relayURL.absoluteString]
-            )
-        }
     }
 
     private func reconnectRelay() {
-        relaySocket?.cancel(with: .goingAway, reason: nil)
+        // Serialize all reconnect attempts on queue; skip if one is already pending.
+        guard !isReconnecting else { return }
+        isReconnecting = true
+        let task = relaySocket
         relaySocket = nil
-        connectToExtensionRelay()
+        task?.cancel(with: .goingAway, reason: nil)
+        // Back off with a 3-second delay before retrying.
+        queue.asyncAfter(deadline: .now() + 3) { [weak self] in
+            guard let self = self else { return }
+            self.isReconnecting = false
+            self.connectToExtensionRelay()
+        }
     }
     #endif
     
@@ -83,7 +95,7 @@ final class DebugWebSocketServer: DebugObserver {
                 return
             }
             
-            relaySocket.send(message) { error in
+            relaySocket.send(message) { [weak self] error in
                 if let error {
                     DispatchQueue.main.async {
                         DebugCategory.system.warningLog(
@@ -91,7 +103,8 @@ final class DebugWebSocketServer: DebugObserver {
                             context: ["error": error.localizedDescription]
                         )
                     }
-                    self.reconnectRelay()
+                    // Dispatch reconnect onto the serial queue to avoid races.
+                    self?.queue.async { self?.reconnectRelay() }
                 }
             }
         }

@@ -7,17 +7,20 @@ struct PlayerScreen: View {
     let item: MediaItem
     @ObservedObject var playerViewModel: PlayerViewModel
     @StateObject private var visionUIRenderer: VisionUIRenderer
+    @StateObject private var nativePlayerController: NativePlayerController
     @EnvironmentObject private var sceneCoordinator: SceneCoordinator
 
     @State private var showControls = true
-    @State private var showHUD = false
     @State private var showSnapshotGallery = false
     @State private var showQueueManager = false
     @State private var showSubtitleWorkflow = false
     @State private var showAudioSettings = false
     @State private var showHUDSettings = false
     @State private var showCinemaSettings = false
+    @State private var showPanelMenuSheet = false
+    @State private var isFullscreenFillEnabled = true
     @State private var currentTime: TimeInterval = 0
+    @State private var isScrubbing = false
     @State private var lastInteractionAt = Date()
     @State private var hideTimer = Timer.publish(every: 1.0, on: .main, in: .common).autoconnect()
     @State private var resumePersistTimer = Timer.publish(every: 10.0, on: .main, in: .common).autoconnect()
@@ -26,148 +29,267 @@ struct PlayerScreen: View {
     @AppStorage("subtitles.fontScale") private var subtitleFontScale = 1.0
     @AppStorage("subtitles.backgroundOpacity") private var subtitleBackgroundOpacity = 0.62
     @AppStorage("subtitles.position") private var subtitlePositionStorage = "low"
+    @AppStorage("ui.panelMenu.detent") private var panelMenuDetentStorage = "medium"
+    @State private var panelMenuDetentSelection: PresentationDetent = .medium
     private let eqStepValues: [Float] = [-12, -9, -6, -3, 0, 3, 6, 9, 12]
     private let subtitleStyleStore = SubtitleStyleStore.shared
 
     @Environment(\.dismiss) private var dismiss
     #if os(visionOS)
+    @Environment(\.supportsMultipleWindows) private var supportsMultipleWindows
     @Environment(\.openImmersiveSpace) private var openImmersiveSpace
     @Environment(\.dismissImmersiveSpace) private var dismissImmersiveSpace
+    @Environment(\.openWindow) private var openWindow
+    @Environment(\.dismissWindow) private var dismissWindow
     #endif
 
     init(item: MediaItem, playerViewModel: PlayerViewModel) {
         self.item = item
         self.playerViewModel = playerViewModel
         _visionUIRenderer = StateObject(wrappedValue: VisionUIRenderer(playerViewModel: playerViewModel))
+        _nativePlayerController = StateObject(wrappedValue: NativePlayerController(url: item.url))
     }
 
     private var usesYouTubePlayerKitPath: Bool {
         YouTubeURL.videoID(from: item.url) != nil
     }
 
+    private var usesNativeAVKitPath: Bool {
+        #if os(visionOS)
+        if usesYouTubePlayerKitPath { return false }
+        return item.vrFormat == .flat2D
+        #else
+        if usesYouTubePlayerKitPath { return false }
+        guard item.vrFormat == .flat2D else { return false }
+        guard let scheme = item.url.scheme?.lowercased() else { return false }
+        guard scheme == "http" || scheme == "https" else { return false }
+        let ext = item.url.pathExtension.lowercased()
+        return ["m3u8", "mp4", "mov", "m4v", "webm"].contains(ext) || item.sourceKind == .ffmpegContainer
+        #endif
+    }
+
     private var displayedItem: MediaItem {
         playerViewModel.currentMedia ?? item
     }
 
+    #if os(visionOS)
+    private var playerWindowSize: CGSize {
+        if isFullscreenFillEnabled {
+            return CGSize(width: 1680, height: 1080)
+        }
+        return CGSize(width: 1280, height: 820)
+    }
+
+    private var controlsVisible: Bool {
+        showControls || usesNativeAVKitPath
+    }
+    #endif
+
     var body: some View {
-        Group {
-            if usesYouTubePlayerKitPath {
-                ZStack {
+        ZStack {
+            Group {
+                if usesYouTubePlayerKitPath {
                     YouTubePlayerSurface(url: item.url)
                         .ignoresSafeArea()
-
-                    VStack {
-                        topBar
-                        Spacer()
-                    }
-                }
-            } else {
-                ZStack {
+                        .clipped()
+                        .contentShape(Rectangle())
+                        .onTapGesture {
+                            lastInteractionAt = Date()
+                            withAnimation { showControls = true }
+                        }
+                        .onLongPressGesture(minimumDuration: 0.6) {
+                            lastInteractionAt = Date()
+                            withAnimation { playerViewModel.isHUDVisible.toggle() }
+                        }
+                } else if usesNativeAVKitPath {
+                    NativeVideoPlayerSurface(
+                        controller: nativePlayerController,
+                        shouldFillScreen: isFullscreenFillEnabled
+                    )
+                        .ignoresSafeArea()
+                        .clipped()
+                        .contentShape(Rectangle())
+                        .onTapGesture {
+                            lastInteractionAt = Date()
+                            withAnimation { showControls = true }
+                        }
+                        .onLongPressGesture(minimumDuration: 0.6) {
+                            lastInteractionAt = Date()
+                            withAnimation { playerViewModel.isHUDVisible.toggle() }
+                        }
+                } else {
                     switch playerViewModel.renderSurface {
                     case .standard:
                         MetalVideoView(playerViewModel: playerViewModel)
                             .ignoresSafeArea()
+                            .clipped()
+                            .contentShape(Rectangle())
+                            .onTapGesture {
+                                lastInteractionAt = Date()
+                                withAnimation { showControls = true }
+                            }
+                            .onLongPressGesture(minimumDuration: 0.6) {
+                                lastInteractionAt = Date()
+                                withAnimation { playerViewModel.isHUDVisible.toggle() }
+                            }
                     case .visionMetal, .converted2DTo3D:
                         MetalUIView(visionRenderer: visionUIRenderer) {
                             EmptyView()
                         }
                         .ignoresSafeArea()
+                        .clipped()
+                        .contentShape(Rectangle())
+                        .onTapGesture {
+                            lastInteractionAt = Date()
+                            withAnimation { showControls = true }
+                        }
+                        .onLongPressGesture(minimumDuration: 0.6) {
+                            lastInteractionAt = Date()
+                            withAnimation { playerViewModel.isHUDVisible.toggle() }
+                        }
                     case .immersive:
                         MetalVideoView(playerViewModel: playerViewModel)
                             .ignoresSafeArea()
-                    }
-
-                    if playerViewModel.cinemaModeSettings.isEnabled {
-                        cinemaModeOverlay
-                            .ignoresSafeArea()
-                            .allowsHitTesting(false)
-                    }
-
-                    VStack {
-                        topBar
-                        Spacer()
-
-                        if let subtitleText = playerViewModel.activeSubtitleText,
-                           !subtitleText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                            Text(subtitleText)
-                            .font(.system(size: 18 * subtitleFontScale, weight: .semibold, design: .rounded))
-                                .multilineTextAlignment(.center)
-                                .foregroundStyle(.white)
-                                .padding(.horizontal, 18)
-                                .padding(.vertical, 10)
-                            .background(Color.black.opacity(subtitleBackgroundOpacity), in: RoundedRectangle(cornerRadius: 10))
-                                .padding(.horizontal, 28)
-                            .padding(.bottom, subtitleBottomPadding)
-                                .transition(.opacity)
-                        }
-
-                        if showHUD {
-                            VStack(spacing: 10) {
-                                PlayerHUD(
-                                    stats: playerViewModel.stats,
-                                    settings: playerViewModel.hudSettings,
-                                    audioMixer: playerViewModel.audioEngine.mixer
-                                )
-
-                                if playerViewModel.hudSettings.showPlaybackDiagnosis {
-                                    PlaybackAdvisorLogView(
-                                        segments: playerViewModel.advisorySegments,
-                                        partialText: playerViewModel.advisoryPartialText,
-                                        onClear: { playerViewModel.clearAdvisoryHistory() }
-                                    )
-                                }
+                            .clipped()
+                            .contentShape(Rectangle())
+                            .onTapGesture {
+                                lastInteractionAt = Date()
+                                withAnimation { showControls = true }
                             }
-                            .padding(.horizontal)
-                            .transition(.move(edge: .bottom).combined(with: .opacity))
-                        }
-                        controlsBar
-                    }
-
-                    #if os(visionOS)
-                    if (displayedItem.vrFormat.isImmersive || playerViewModel.renderSurface == .immersive) && !showControls {
-                        VStack {
-                            Spacer()
-                            HStack {
-                                Spacer()
-                                SpatialQuickActionsOrnament(
-                                    showControls: showControls,
-                                    showHUD: showHUD,
-                                    immersiveButtonTitle: immersiveActionTitle,
-                                    isImmersiveTransitioning: sceneCoordinator.isImmersiveTransitioning,
-                                    onToggleControls: {
-                                        withAnimation(.easeInOut(duration: 0.18)) {
-                                            showControls.toggle()
-                                        }
-                                    },
-                                    onToggleHUD: {
-                                        withAnimation(.easeInOut(duration: 0.18)) {
-                                            showHUD.toggle()
-                                        }
-                                    },
-                                    onToggleImmersive: {
-                                        Task {
-                                            await toggleImmersivePresentation()
-                                        }
-                                    }
-                                )
+                            .onLongPressGesture(minimumDuration: 0.6) {
+                                lastInteractionAt = Date()
+                                withAnimation { playerViewModel.isHUDVisible.toggle() }
                             }
-                        }
-                        .padding(.trailing, 14)
-                        .padding(.bottom, 18)
-                        .transition(.move(edge: .trailing).combined(with: .opacity))
                     }
-                    #endif
                 }
             }
+
+            if playerViewModel.cinemaModeSettings.isEnabled {
+                cinemaModeOverlay
+                    .ignoresSafeArea()
+                    .allowsHitTesting(false)
+            }
+
+            if controlsVisible {
+                VStack {
+                    HStack {
+                        Button {
+                            toggleFullscreenWindowSize()
+                        } label: {
+                            Image(systemName: isFullscreenFillEnabled ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right")
+                                .font(.title2)
+                                .foregroundStyle(.white)
+                        }
+
+                        Spacer()
+                    }
+                    .padding(.top, 20)
+                    .padding(.horizontal, 24)
+
+                    Spacer()
+                }
+                .ignoresSafeArea(edges: .top)
+                .transition(.opacity)
+            }
+
+
+
+            if controlsVisible {
+                VStack {
+                    Spacer()
+                    scrubberBar
+                        .padding(.bottom, 108)
+                }
+                .ignoresSafeArea(edges: .bottom)
+                .transition(.opacity)
+            }
+
+            VStack {
+                Spacer()
+                controlsBar
+                    .padding(.bottom, 20)
+            }
+            .ignoresSafeArea(edges: .bottom)
+
+            VStack {
+                Spacer()
+                if let subtitleText = playerViewModel.activeSubtitleText,
+                   !subtitleText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    Text(subtitleText)
+                        .font(.system(size: 18 * subtitleFontScale, weight: .semibold, design: .rounded))
+                        .multilineTextAlignment(.center)
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 18)
+                        .padding(.vertical, 10)
+                        .background(Color.black.opacity(subtitleBackgroundOpacity), in: RoundedRectangle(cornerRadius: 10))
+                        .padding(.horizontal, 28)
+                        .padding(.bottom, subtitleBottomPadding + 84)
+                        .transition(.opacity)
+                }
+            }
+            .ignoresSafeArea(edges: .bottom)
+
+            if playerViewModel.isHUDVisible {
+                VStack(spacing: 10) {
+                    Spacer()
+                    PlayerHUD(
+                        stats: playerViewModel.stats,
+                        settings: playerViewModel.hudSettings,
+                        audioMixer: playerViewModel.audioEngine.mixer
+                    )
+
+                    if playerViewModel.hudSettings.showPlaybackDiagnosis {
+                        PlaybackAdvisorLogView(
+                            segments: playerViewModel.advisorySegments,
+                            partialText: playerViewModel.advisoryPartialText,
+                            onClear: { playerViewModel.clearAdvisoryHistory() }
+                        )
+                    }
+                }
+                .padding(.horizontal)
+                .padding(.bottom, 150)
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+
+            #if os(visionOS)
+            if (displayedItem.vrFormat.isImmersive || playerViewModel.renderSurface == .immersive) && !showControls {
+                VStack {
+                    Spacer()
+                    HStack {
+                        Spacer()
+                        SpatialQuickActionsOrnament(
+                            showControls: showControls,
+                            showHUD: playerViewModel.isHUDVisible,
+                            immersiveButtonTitle: immersiveActionTitle,
+                            isImmersiveTransitioning: sceneCoordinator.isImmersiveTransitioning,
+                            onToggleControls: {
+                                withAnimation(.easeInOut(duration: 0.18)) {
+                                    showControls.toggle()
+                                }
+                            },
+                            onToggleHUD: {
+                                withAnimation(.easeInOut(duration: 0.18)) {
+                                    playerViewModel.isHUDVisible.toggle()
+                                }
+                            },
+                            onToggleImmersive: {
+                                Task {
+                                    await toggleImmersivePresentation()
+                                }
+                            }
+                        )
+                    }
+                }
+                .padding(.trailing, 14)
+                .padding(.bottom, 18)
+                .transition(.move(edge: .trailing).combined(with: .opacity))
+            }
+            #endif
         }
-        .onTapGesture {
-            lastInteractionAt = Date()
-            withAnimation { showControls.toggle() }
-        }
-        .onLongPressGesture {
-            lastInteractionAt = Date()
-            withAnimation { showHUD.toggle() }
-        }
+    #if os(visionOS)
+        .windowGeometryPreferences(size: playerWindowSize)
+    #endif
+        .ignoresSafeArea(edges: .all)
         .onReceive(hideTimer) { now in
             let shouldHide = playerViewModel.isPlaying
                 && showControls
@@ -181,34 +303,38 @@ struct PlayerScreen: View {
                 playerViewModel.persistResumeProgressIfNeeded()
             }
         }
+        .onReceive(nativePlayerController.$currentTime) { newValue in
+            guard usesNativeAVKitPath, isScrubbing == false else { return }
+            currentTime = newValue
+        }
         .onChange(of: playerViewModel.playbackTimeSeconds) { _, newValue in
+            guard usesNativeAVKitPath == false, isScrubbing == false else { return }
             currentTime = newValue
         }
         .onChange(of: playerViewModel.selectedSubtitleTrackID) { _, _ in
             applySavedSubtitlePresetForCurrentLanguage()
         }
-        .onChange(of: currentTime) { oldValue, newValue in
-            guard abs(newValue - playerViewModel.playbackTimeSeconds) > 0.8 else { return }
-            guard abs(newValue - oldValue) > 0.02 else { return }
-            Task {
-                await playerViewModel.seek(to: newValue)
-            }
-        }
         .task {
-            if usesYouTubePlayerKitPath == false,
-               playerViewModel.currentMedia?.id != item.id {
-                await playerViewModel.playMedia(item)
+            if usesYouTubePlayerKitPath == false {
+                if usesNativeAVKitPath {
+                    nativePlayerController.play()
+                } else {
+                    await playerViewModel.playMedia(item)
+                }
             }
             applySavedSubtitlePresetForCurrentLanguage()
         }
         .onDisappear {
-            if usesYouTubePlayerKitPath == false {
-                Task { await playerViewModel.stopPlayback() }
+            if usesNativeAVKitPath {
+                nativePlayerController.stop()
             }
+            Task { await playerViewModel.stopPlayback() }
         }
+        #if !os(visionOS)
         .sheet(isPresented: $showSnapshotGallery) {
             SnapshotGalleryView(playerViewModel: playerViewModel)
         }
+        #endif
         .sheet(isPresented: $showQueueManager) {
             QueueManagerView(playerViewModel: playerViewModel)
         }
@@ -224,503 +350,26 @@ struct PlayerScreen: View {
         .sheet(isPresented: $showCinemaSettings) {
             CinemaModeSettingsView(playerViewModel: playerViewModel)
         }
+        .sheet(isPresented: $showPanelMenuSheet) {
+            panelMenuSheet
+            #if !os(visionOS)
+                .presentationDetents(
+                    [.fraction(0.35), .medium, .large],
+                    selection: $panelMenuDetentSelection
+                )
+                .presentationDragIndicator(.visible)
+                .onAppear {
+                    panelMenuDetentSelection = detentFromStorage(panelMenuDetentStorage)
+                }
+                .onChange(of: panelMenuDetentSelection) { _, newValue in
+                    panelMenuDetentStorage = storageValue(for: newValue)
+                }
+            #endif
+        }
         .navigationBarBackButtonHidden(true)
     }
 
-    private var topBar: some View {
-        let blurProfile = ProgressiveBlurProfile(storageValue: blurProfileStorage)
 
-        return VStack(spacing: 8) {
-            HStack {
-                Button {
-                    Task {
-                        await dismissPlayer()
-                    }
-                } label: {
-                    Label("Back", systemImage: "chevron.left")
-                }
-
-                Spacer()
-
-                Text(displayedItem.title)
-                    .lineLimit(1)
-                    .font(.headline)
-
-                Spacer()
-
-                Menu {
-                    Picker("Mode", selection: $playerViewModel.selectedMode) {
-                        ForEach(PlayerViewModel.Mode.allCases) { mode in
-                            Text(mode.rawValue).tag(mode)
-                        }
-                    }
-                    .onChange(of: playerViewModel.selectedMode) { _, newValue in
-                        playerViewModel.switchMode(newValue)
-                    }
-
-                    Divider()
-
-                    Picker("Surface", selection: $playerViewModel.renderSurface) {
-                        ForEach(VisionUIRenderSurface.allCases) { surface in
-                            Text(surface.rawValue.capitalized).tag(surface)
-                        }
-                    }
-                    .onChange(of: playerViewModel.renderSurface) { _, newSurface in
-                        playerViewModel.switchRenderSurface(newSurface)
-                    }
-
-                    Divider()
-                    Section("Panels") {
-                        Button("Audio Settings") {
-                            showAudioSettings = true
-                        }
-
-                        Button("HUD Settings") {
-                            showHUDSettings = true
-                        }
-
-                        Button(playerViewModel.cinemaModeSettings.isEnabled ? "Cinema Mode: On" : "Cinema Mode: Off") {
-                            showCinemaSettings = true
-                        }
-                    }
-
-                    Section("Voice Commands") {
-                        Button(playerViewModel.voiceCommandEngine.isListening ? "Stop Listening" : "Start Listening") {
-                            if playerViewModel.voiceCommandEngine.isListening {
-                                playerViewModel.voiceCommandEngine.stopListening()
-                            } else {
-                                playerViewModel.voiceCommandEngine.startListening()
-                            }
-                        }
-
-                        Text(playerViewModel.voiceCommandEngine.statusMessage)
-                        Text(playerViewModel.voiceCommandEngine.supportedPhrases.joined(separator: " • "))
-                    }
-
-                    if playerViewModel.canStepQueue || playerViewModel.canRestoreQueueSnapshot {
-                        Divider()
-                        Section("Queue") {
-                            Toggle("Shuffle", isOn: Binding(
-                                get: { playerViewModel.shuffleEnabled },
-                                set: { _ in playerViewModel.toggleShuffleEnabled() }
-                            ))
-
-                            Toggle("Repeat All", isOn: Binding(
-                                get: { playerViewModel.repeatAllEnabled },
-                                set: { _ in playerViewModel.toggleRepeatAllEnabled() }
-                            ))
-
-                            Toggle("Auto Remove Watched", isOn: Binding(
-                                get: { playerViewModel.autoRemoveWatchedQueueItems },
-                                set: { playerViewModel.setQueueAutoRemoveWatched($0) }
-                            ))
-
-                            Toggle("Pin Favorites First", isOn: Binding(
-                                get: { playerViewModel.pinFavoriteItemsInQueue },
-                                set: { playerViewModel.setQueuePinFavorites($0) }
-                            ))
-
-                            Toggle("Protect Pinned from Auto-Remove", isOn: Binding(
-                                get: { playerViewModel.protectPinnedFromAutoRemove },
-                                set: { playerViewModel.setProtectPinnedFromAutoRemove($0) }
-                            ))
-                            .disabled(!playerViewModel.autoRemoveWatchedQueueItems)
-
-                            Button("Previous") {
-                                Task {
-                                    await playerViewModel.playPreviousInQueue()
-                                }
-                            }
-                            .disabled(!playerViewModel.canStepQueue)
-
-                            Button("Next") {
-                                Task {
-                                    await playerViewModel.playNextInQueue()
-                                }
-                            }
-                            .disabled(!playerViewModel.canStepQueue)
-
-                            Button("Save Queue") {
-                                playerViewModel.saveQueueSnapshot()
-                            }
-
-                            Button("Open Playlist") {
-                                showQueueManager = true
-                            }
-                            .disabled(!playerViewModel.canManageQueue)
-
-                            Button("Load Saved Queue") {
-                                Task {
-                                    await playerViewModel.restoreQueueSnapshot()
-                                }
-                            }
-                            .disabled(!playerViewModel.canRestoreQueueSnapshot)
-
-                            Button("Clear Saved Queue", role: .destructive) {
-                                playerViewModel.clearQueueSnapshot()
-                            }
-                            .disabled(!playerViewModel.canRestoreQueueSnapshot)
-                        }
-                    }
-
-                    if !playerViewModel.audioTrackOptions.isEmpty {
-                        Divider()
-                        Section("Audio Track") {
-                            ForEach(playerViewModel.audioTrackOptions) { option in
-                                Button {
-                                    playerViewModel.selectAudioTrack(id: option.id)
-                                } label: {
-                                    HStack {
-                                        Text(option.title)
-                                        if playerViewModel.selectedAudioTrackID == option.id {
-                                            Image(systemName: "checkmark")
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    if !playerViewModel.subtitleTrackOptions.isEmpty {
-                        Section("Subtitle Track") {
-                            ForEach(playerViewModel.subtitleTrackOptions) { option in
-                                Button {
-                                    playerViewModel.selectSubtitleTrack(id: option.id)
-                                } label: {
-                                    HStack {
-                                        Text(option.title)
-                                        if playerViewModel.selectedSubtitleTrackID == option.id {
-                                            Image(systemName: "checkmark")
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    Divider()
-                    Section("Audio DSP") {
-                        Picker("Preset", selection: Binding(
-                            get: { currentAudioPreset },
-                            set: { playerViewModel.applyAudioEffectsPreset($0) }
-                        )) {
-                            ForEach(AudioEffectsPreset.allCases) { preset in
-                                Text(preset.rawValue).tag(preset)
-                            }
-                        }
-
-                        Picker("Preamp", selection: Binding(
-                            get: { roundedPreampValue(playerViewModel.audioEffectsProfile.preampDB) },
-                            set: { playerViewModel.setPreampDB($0) }
-                        )) {
-                            ForEach(eqStepValues, id: \.self) { value in
-                                Text(String(format: "%+.0f dB", value)).tag(value)
-                            }
-                        }
-
-                        Toggle("Normalization", isOn: Binding(
-                            get: { playerViewModel.audioEffectsProfile.normalizationEnabled },
-                            set: { _ in playerViewModel.toggleNormalization() }
-                        ))
-
-                        Toggle("Limiter", isOn: Binding(
-                            get: { playerViewModel.audioEffectsProfile.limiterEnabled },
-                            set: { _ in playerViewModel.toggleLimiter() }
-                        ))
-
-                        Menu {
-                            Button("-2 dB") { playerViewModel.adjustLoudnessCompensation(by: -2) }
-                            Button("-1 dB") { playerViewModel.adjustLoudnessCompensation(by: -1) }
-                            Button("+1 dB") { playerViewModel.adjustLoudnessCompensation(by: 1) }
-                            Button("+2 dB") { playerViewModel.adjustLoudnessCompensation(by: 2) }
-                            Button("Reset for This Media") { playerViewModel.resetLoudnessCompensationForCurrentMedia() }
-                            Button("Clear All Saved", role: .destructive) { playerViewModel.clearAllStoredLoudnessCompensation() }
-                        } label: {
-                            HStack {
-                                Text("Loudness Memory")
-                                Spacer()
-                                Text(String(format: "%+.1f dB", playerViewModel.loudnessCompensationDB))
-                                    .foregroundStyle(.secondary)
-                            }
-                        }
-
-                        ForEach(Array(AudioEffectsProfile.bandFrequenciesHz.enumerated()), id: \.offset) { index, frequency in
-                            Menu {
-                                ForEach(eqStepValues, id: \.self) { value in
-                                    Button {
-                                        playerViewModel.setEqualizerBand(at: index, db: value)
-                                    } label: {
-                                        HStack {
-                                            Text(String(format: "%+.0f dB", value))
-                                            if abs(playerViewModel.audioEffectsProfile.bandGainsDB[index] - value) < 0.01 {
-                                                Image(systemName: "checkmark")
-                                            }
-                                        }
-                                    }
-                                }
-                            } label: {
-                                HStack {
-                                    Text("\(eqFrequencyLabel(frequency)): \(String(format: "%+.1f dB", playerViewModel.audioEffectsProfile.bandGainsDB[index]))")
-                                    Spacer()
-                                    Image(systemName: "slider.horizontal.3")
-                                }
-                            }
-                        }
-
-                        Button("Reset EQ") {
-                            playerViewModel.resetEqualizer()
-                        }
-                    }
-
-                    if playerViewModel.canChooseHLSResolution {
-                        Divider()
-                        Section("HLS Resolution") {
-                            Button {
-                                playerViewModel.resetHLSBitrateRungSelection()
-                            } label: {
-                                HStack {
-                                    Text("Auto")
-                                    if playerViewModel.selectedHLSBitrateRungId == nil {
-                                        Image(systemName: "checkmark")
-                                    }
-                                }
-                            }
-
-                            ForEach(playerViewModel.hlsBitrateRungs) { rung in
-                                Button {
-                                    playerViewModel.openHLSBitrateRung(rung)
-                                } label: {
-                                    HStack {
-                                        Text("\(rung.resolutionString) • \(rung.bitrateString)")
-                                        if playerViewModel.selectedHLSBitrateRungId == rung.id {
-                                            Image(systemName: "checkmark")
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    if !playerViewModel.hlsAudioOptions.isEmpty {
-                        Section("HLS Audio") {
-                            Button {
-                                playerViewModel.resetHLSAudioSelection()
-                            } label: {
-                                HStack {
-                                    Text("Default")
-                                    if playerViewModel.selectedHLSAudioOptionId == nil {
-                                        Image(systemName: "checkmark")
-                                    }
-                                }
-                            }
-
-                            ForEach(playerViewModel.hlsAudioOptions) { option in
-                                Button {
-                                    playerViewModel.openHLSAudioOption(option)
-                                } label: {
-                                    HStack {
-                                        Text(option.description)
-                                        if playerViewModel.selectedHLSAudioOptionId == option.id {
-                                            Image(systemName: "checkmark")
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    Section("Visual Effects") {
-                        Picker("Blur Profile", selection: $blurProfileStorage) {
-                            Text("Soft").tag("soft")
-                            Text("Medium").tag("medium")
-                            Text("Strong").tag("strong")
-                        }
-
-                        Picker("Blur Noise", selection: $playerBlurNoiseStorage) {
-                            Text("Off").tag(0.0)
-                            Text("Low").tag(0.15)
-                            Text("Medium").tag(0.3)
-                            Text("High").tag(0.45)
-                        }
-                    }
-
-                    Section("Subtitles") {
-                        Picker("Preset", selection: Binding(
-                            get: { currentSubtitlePreset },
-                            set: { applySubtitlePreset($0) }
-                        )) {
-                            ForEach(SubtitleStylePreset.allCases) { preset in
-                                Text(preset.rawValue).tag(preset)
-                            }
-                        }
-
-                        Toggle("Visible", isOn: Binding(
-                            get: { playerViewModel.subtitlesVisible },
-                            set: { _ in playerViewModel.toggleSubtitlesVisible() }
-                        ))
-
-                        Picker("Size", selection: $subtitleFontScale) {
-                            Text("Small").tag(0.85)
-                            Text("Normal").tag(1.0)
-                            Text("Large").tag(1.2)
-                            Text("XL").tag(1.4)
-                        }
-
-                        Picker("Position", selection: $subtitlePositionStorage) {
-                            Text("Low").tag("low")
-                            Text("Middle").tag("mid")
-                            Text("High").tag("high")
-                        }
-
-                        Picker("Background", selection: $subtitleBackgroundOpacity) {
-                            Text("Off").tag(0.0)
-                            Text("Low").tag(0.35)
-                            Text("Medium").tag(0.62)
-                            Text("High").tag(0.82)
-                        }
-
-                        Button("Save as Default for \(playerViewModel.currentSubtitleLanguageKey.uppercased())") {
-                            subtitleStyleStore.setPreset(currentSubtitlePreset, for: playerViewModel.currentSubtitleLanguageKey)
-                        }
-
-                        Button("Load Default for \(playerViewModel.currentSubtitleLanguageKey.uppercased())") {
-                            applySavedSubtitlePresetForCurrentLanguage()
-                        }
-
-                        Button("Clear Default for \(playerViewModel.currentSubtitleLanguageKey.uppercased())", role: .destructive) {
-                            subtitleStyleStore.clearPreset(for: playerViewModel.currentSubtitleLanguageKey)
-                        }
-
-                        Button("Search and Download") {
-                            showSubtitleWorkflow = true
-                        }
-                    }
-
-                    Section("A-B Loop Slots") {
-                        Button("Save Current A-B") {
-                            playerViewModel.saveCurrentABLoopSlot(named: nil)
-                        }
-                        .disabled(playerViewModel.abRepeatStartSeconds == nil || playerViewModel.abRepeatEndSeconds == nil)
-
-                        if playerViewModel.abLoopSlots.isEmpty {
-                            Text("No saved loops")
-                        } else {
-                            ForEach(Array(playerViewModel.abLoopSlots.enumerated()), id: \.element.id) { index, slot in
-                                Button {
-                                    playerViewModel.loadABLoopSlot(at: index)
-                                } label: {
-                                    HStack {
-                                        Text("\(slot.name): \(formatTime(slot.startSeconds)) - \(formatTime(slot.endSeconds))")
-                                        Spacer()
-                                    }
-                                }
-
-                                Button("Delete \(slot.name)", role: .destructive) {
-                                    playerViewModel.removeABLoopSlot(at: index)
-                                }
-                            }
-                        }
-
-                        Button("Clear All Loops", role: .destructive) {
-                            playerViewModel.clearABLoopSlotsForCurrentMedia()
-                        }
-                        .disabled(playerViewModel.abLoopSlots.isEmpty)
-                    }
-                } label: {
-                    Image(systemName: "slider.horizontal.3")
-                }
-            }
-
-            if let resume = playerViewModel.resumeTimeSeconds, resume > 0 {
-                Text("Last watched: \(formatTime(resume))")
-                    .font(.caption2)
-                    .foregroundStyle(.white.opacity(0.85))
-            }
-
-            if !playerViewModel.subtitleImportStatusMessage.isEmpty {
-                Text(playerViewModel.subtitleImportStatusMessage)
-                    .font(.caption2)
-                    .foregroundStyle(.white.opacity(0.82))
-                    .lineLimit(1)
-            }
-
-            if playerViewModel.isBuffering {
-                HStack(spacing: 6) {
-                    ProgressView()
-                        .scaleEffect(0.78)
-                        .tint(.white)
-                    Text("Buffering...")
-                        .font(.caption2)
-                        .foregroundStyle(.white.opacity(0.9))
-                }
-                .padding(.horizontal, 10)
-                .padding(.vertical, 5)
-                .background(Color.black.opacity(0.38), in: Capsule())
-            }
-
-            if let transportStatusText {
-                HStack(spacing: 6) {
-                    Image(systemName: transportStatusIcon)
-                        .font(.caption2)
-                    Text(transportStatusText)
-                        .font(.caption2)
-                }
-                .foregroundStyle(transportStatusColor)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 5)
-                .background(Color.black.opacity(0.38), in: Capsule())
-            }
-
-            if let stallRiskText {
-                HStack(spacing: 6) {
-                    Image(systemName: stallRiskIcon)
-                        .font(.caption2)
-                    Text(stallRiskText)
-                        .font(.caption2)
-                }
-                .foregroundStyle(stallRiskColor)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 5)
-                .background(Color.black.opacity(0.38), in: Capsule())
-            }
-
-            if let diagnosisSummaryText {
-                HStack(spacing: 6) {
-                    Image(systemName: diagnosisIcon)
-                        .font(.caption2)
-                    Text(diagnosisSummaryText)
-                        .font(.caption2)
-                        .lineLimit(1)
-                }
-                .foregroundStyle(diagnosisColor)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 5)
-                .background(Color.black.opacity(0.38), in: Capsule())
-            }
-
-            #if os(visionOS)
-            if displayedItem.vrFormat.isImmersive || playerViewModel.renderSurface == .immersive {
-                Text(immersiveStatusText)
-                    .font(.caption2)
-                    .foregroundStyle(.white.opacity(0.72))
-            }
-            #endif
-
-            if showControls {
-                VRControlsView(playerModel: playerViewModel)
-            }
-        }
-        .padding()
-        .foregroundStyle(.white)
-        .background(Color.black.opacity(showControls ? 0.35 : 0.0))
-        .progressiveBlur(
-            offset: 0.0,
-            interpolation: 0.62,
-            direction: .down,
-            noise: playerBlurNoiseStorage,
-            profile: blurProfile
-        )
-    }
 
     private var cinemaModeOverlay: some View {
         let settings = playerViewModel.cinemaModeSettings
@@ -754,108 +403,306 @@ struct PlayerScreen: View {
         }
     }
 
-    private var controlsBar: some View {
-        VStack(spacing: 10) {
-            PlayerControls(
-                isPlaying: Binding(
-                    get: { playerViewModel.stats.isPlaying },
-                    set: { _ in playerViewModel.togglePlayPause() }
-                ),
-                currentTime: $currentTime,
-                abRepeatStartSeconds: playerViewModel.abRepeatStartSeconds,
-                abRepeatEndSeconds: playerViewModel.abRepeatEndSeconds,
-                abRepeatEnabled: playerViewModel.abRepeatEnabled,
-                abLoopSlots: playerViewModel.abLoopSlots,
-                repeatOneEnabled: playerViewModel.repeatOneEnabled,
-                repeatAllEnabled: playerViewModel.repeatAllEnabled,
-                shuffleEnabled: playerViewModel.shuffleEnabled,
-                canStepQueue: playerViewModel.canStepQueue,
-                isMuted: playerViewModel.isMuted,
-                volume: playerViewModel.volume,
-                playbackRate: playerViewModel.playbackRate,
-                subtitleDelaySeconds: playerViewModel.subtitleDelaySeconds,
-                subtitlesVisible: playerViewModel.subtitlesVisible,
-                bookmarks: playerViewModel.playbackBookmarks,
-                hasAudioTracks: !playerViewModel.audioTrackOptions.isEmpty,
-                hasSubtitleTracks: !playerViewModel.subtitleTrackOptions.isEmpty,
-                audioTrackLabel: playerViewModel.selectedAudioTrackLabel,
-                subtitleTrackLabel: playerViewModel.selectedSubtitleTrackLabel,
-                snapshotStatusMessage: playerViewModel.snapshotStatusMessage,
-                totalDuration: displayedItem.duration,
-                onPlayPauseToggle: { playerViewModel.togglePlayPause() },
-                onPlayPrevious: {
-                    Task {
-                        await playerViewModel.playPreviousInQueue()
-                    }
-                },
-                onPlayNext: {
-                    Task {
-                        await playerViewModel.playNextInQueue()
-                    }
-                },
-                onSeekBackward: {
-                    Task {
-                        await playerViewModel.seekBy(delta: -10)
-                    }
-                },
-                onSeekForward: {
-                    Task {
-                        await playerViewModel.seekBy(delta: 10)
-                    }
-                },
-                onMarkABStart: { playerViewModel.markABRepeatStart(at: currentTime) },
-                onMarkABEnd: { playerViewModel.markABRepeatEnd(at: currentTime) },
-                onToggleABRepeat: { playerViewModel.toggleABRepeatEnabled() },
-                onClearABRepeat: { playerViewModel.clearABRepeat() },
-                onSetPlaybackRate: { playerViewModel.setPlaybackRate($0) },
-                onAdjustSubtitleDelay: { playerViewModel.adjustSubtitleDelay(by: $0) },
-                onResetSubtitleDelay: { playerViewModel.resetSubtitleDelay() },
-                onStepFrame: {
-                    Task {
-                        await playerViewModel.stepFrameForward()
-                    }
-                },
-                onCaptureSnapshot: { playerViewModel.captureSnapshot() },
-                onToggleMute: { playerViewModel.toggleMute() },
-                onSetVolume: { playerViewModel.setVolume($0) },
-                onToggleRepeatOne: { playerViewModel.toggleRepeatOneEnabled() },
-                onToggleRepeatAll: { playerViewModel.toggleRepeatAllEnabled() },
-                onToggleShuffle: { playerViewModel.toggleShuffleEnabled() },
-                onToggleSubtitles: { playerViewModel.toggleSubtitlesVisible() },
-                onCycleAudioTrack: { playerViewModel.cycleAudioTrack() },
-                onCycleSubtitleTrack: { playerViewModel.cycleSubtitleTrack() },
-                onOpenSnapshotGallery: {
-                    showSnapshotGallery = true
-                },
-                onAddBookmark: { playerViewModel.addPlaybackBookmark(at: currentTime) },
-                onSeekBookmark: { index in
-                    Task {
-                        await playerViewModel.seekToPlaybackBookmark(at: index)
-                    }
-                },
-                onRemoveBookmark: { index in
-                    playerViewModel.removePlaybackBookmark(at: index)
-                },
-                onSelectABLoopSlot: { index in
-                    playerViewModel.loadABLoopSlot(at: index)
-                }
-            )
 
-            #if os(visionOS)
-            if displayedItem.vrFormat.isImmersive || playerViewModel.renderSurface == .immersive {
-                Button(immersiveActionTitle) {
+    private var scrubberBar: some View {
+        let duration = max(usesNativeAVKitPath ? nativePlayerController.duration : (displayedItem.duration ?? 0), 0)
+
+        return VStack {
+            HStack(spacing: 12) {
+                Text(formatTime(currentTime))
+                    .font(.caption2)
+                    .monospacedDigit()
+                    .foregroundStyle(.white)
+
+                Slider(
+                    value: Binding(
+                        get: { currentTime },
+                        set: { newValue in
+                            currentTime = newValue
+                            lastInteractionAt = Date()
+                            if showControls == false {
+                                withAnimation { showControls = true }
+                            }
+                        }
+                    ),
+                    in: 0...max(duration, 0.1),
+                    onEditingChanged: { editing in
+                        isScrubbing = editing
+                        lastInteractionAt = Date()
+
+                        guard editing == false else { return }
+                        if usesNativeAVKitPath {
+                            nativePlayerController.seek(to: currentTime)
+                        } else {
+                            Task {
+                                await playerViewModel.seek(to: currentTime)
+                            }
+                        }
+                    }
+                )
+                    .tint(.white.opacity(0.8))
+
+                Text(formatTime(duration))
+                    .font(.caption2)
+                    .monospacedDigit()
+                    .foregroundStyle(.white)
+            }
+            .padding(.horizontal, 24)
+            .padding(.vertical, 12)
+            .background(Color.black.opacity(0.5), in: RoundedRectangle(cornerRadius: 12))
+        }
+        .padding(.horizontal, 24)
+    }
+
+    private var controlsBar: some View {
+        let isPlaying = usesNativeAVKitPath ? nativePlayerController.isPlaying : playerViewModel.stats.isPlaying
+        let isMuted = usesNativeAVKitPath ? nativePlayerController.isMuted : playerViewModel.isMuted
+
+        return HStack(spacing: 20) {
+            Button {
+                Task {
+                    await dismissPlayer()
+                }
+            } label: {
+                Image(systemName: "chevron.left")
+                    .font(.title2)
+                    .foregroundStyle(.white)
+            }
+
+            // Speaker/Audio
+            Button {
+                if usesNativeAVKitPath {
+                    nativePlayerController.toggleMute()
+                } else {
+                    playerViewModel.toggleMute()
+                }
+            } label: {
+                Image(systemName: isMuted ? "speaker.slash.fill" : "speaker.fill")
+                    .font(.title2)
+                    .foregroundStyle(.white)
+            }
+
+            // Skip back 15
+            Button {
+                if usesNativeAVKitPath {
+                    nativePlayerController.seekBy(delta: -15)
+                } else {
                     Task {
-                        await toggleImmersivePresentation()
+                        await playerViewModel.seekBy(delta: -15)
                     }
                 }
-                .buttonStyle(.borderedProminent)
-                .disabled(sceneCoordinator.isImmersiveTransitioning)
+            } label: {
+                Image(systemName: "gobackward.10")
+                    .font(.title2)
+                    .foregroundStyle(.white)
             }
-            #endif
+
+            // Play/Pause
+            Button {
+                if usesNativeAVKitPath {
+                    nativePlayerController.togglePlayPause()
+                } else {
+                    playerViewModel.togglePlayPause()
+                }
+            } label: {
+                Image(systemName: isPlaying ? "pause.circle.fill" : "play.circle.fill")
+                    .font(.system(size: 32))
+                    .foregroundStyle(.white)
+            }
+
+            // Skip forward 15
+            Button {
+                if usesNativeAVKitPath {
+                    nativePlayerController.seekBy(delta: 15)
+                } else {
+                    Task {
+                        await playerViewModel.seekBy(delta: 15)
+                    }
+                }
+            } label: {
+                Image(systemName: "goforward.10")
+                    .font(.title2)
+                    .foregroundStyle(.white)
+            }
+
+            Button {
+                openSnapshotGallery()
+            } label: {
+                Image(systemName: "photo.on.rectangle")
+                    .font(.title2)
+                    .foregroundStyle(.white)
+            }
+
+            // Settings
+            Button {
+                #if os(visionOS)
+                openPlayerSettings()
+                #else
+                showPanelMenuSheet = true
+                #endif
+            } label: {
+                Image(systemName: "gear.circle.fill")
+                    .font(.title2)
+                    .foregroundStyle(.white)
+            }
+
+            // More options
+            Button {
+                // Show more options / menu
+            } label: {
+                Image(systemName: "ellipsis.circle.fill")
+                    .font(.title2)
+                    .foregroundStyle(.white)
+            }
+
+            Spacer()
         }
-        .opacity(showControls ? 1 : 0)
-        .animation(.easeInOut(duration: 0.2), value: showControls)
-        .padding()
+        .padding(.vertical, 16)
+        .padding(.horizontal, 24)
+        .opacity(controlsVisible ? 1 : 0)
+        .animation(.easeInOut(duration: 0.2), value: controlsVisible)
+    }
+
+    private func toggleFullscreenWindowSize() {
+        lastInteractionAt = Date()
+        withAnimation(.easeInOut(duration: 0.18)) {
+            isFullscreenFillEnabled.toggle()
+        }
+    }
+
+    #if os(visionOS)
+    private func openSnapshotGallery() {
+        openWindow(id: SceneCoordinator.snapshotWindowID)
+    }
+
+    private func openPlayerSettings() {
+        if supportsMultipleWindows {
+            openWindow(id: SceneCoordinator.playerSettingsWindowID)
+        } else {
+            showPanelMenuSheet = true
+            DebugCategory.navigation.warningLog("Multi-window unavailable; falling back to panel menu sheet")
+        }
+    }
+    #else
+    private func openSnapshotGallery() {
+        showSnapshotGallery = true
+    }
+    #endif
+
+    private var panelMenuSheet: some View {
+        NavigationStack {
+            List {
+                Section("Playback") {
+                    Picker("Mode", selection: $playerViewModel.selectedMode) {
+                        ForEach(PlayerViewModel.Mode.allCases) { mode in
+                            Text(mode.rawValue).tag(mode)
+                        }
+                    }
+                    .onChange(of: playerViewModel.selectedMode) { _, newValue in
+                        playerViewModel.switchMode(newValue)
+                    }
+
+                    Picker("Surface", selection: $playerViewModel.renderSurface) {
+                        ForEach(VisionUIRenderSurface.allCases) { surface in
+                            Text(surface.rawValue.capitalized).tag(surface)
+                        }
+                    }
+                    .onChange(of: playerViewModel.renderSurface) { _, newSurface in
+                        playerViewModel.switchRenderSurface(newSurface)
+                    }
+                }
+
+                Section("Panels") {
+                    Button("Audio Settings") {
+                        openSubpanelFromMenu(.audio)
+                    }
+
+                    Button("HUD Settings") {
+                        openSubpanelFromMenu(.hud)
+                    }
+
+                    Button("Cinema Settings") {
+                        openSubpanelFromMenu(.cinema)
+                    }
+
+                    Button("Subtitle Search & Download") {
+                        openSubpanelFromMenu(.subtitleWorkflow)
+                    }
+
+                    Button("Queue / Playlist") {
+                        openSubpanelFromMenu(.queue)
+                    }
+                    .disabled(!playerViewModel.canManageQueue)
+                }
+
+                Section("Quick Toggles") {
+                    Toggle("Show Subtitles", isOn: Binding(
+                        get: { playerViewModel.subtitlesVisible },
+                        set: { _ in playerViewModel.toggleSubtitlesVisible() }
+                    ))
+
+                    Toggle("Show HUD", isOn: $playerViewModel.isHUDVisible)
+
+                    Toggle("Shuffle", isOn: Binding(
+                        get: { playerViewModel.shuffleEnabled },
+                        set: { _ in playerViewModel.toggleShuffleEnabled() }
+                    ))
+
+                    Toggle("Repeat All", isOn: Binding(
+                        get: { playerViewModel.repeatAllEnabled },
+                        set: { _ in playerViewModel.toggleRepeatAllEnabled() }
+                    ))
+                }
+
+                Section("Voice Commands") {
+                    Button(playerViewModel.voiceCommandEngine.isListening ? "Stop Listening" : "Start Listening") {
+                        if playerViewModel.voiceCommandEngine.isListening {
+                            playerViewModel.voiceCommandEngine.stopListening()
+                        } else {
+                            playerViewModel.voiceCommandEngine.startListening()
+                        }
+                    }
+
+                    Text(playerViewModel.voiceCommandEngine.statusMessage)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .navigationTitle("Panel Settings")
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Done") {
+                        showPanelMenuSheet = false
+                    }
+                }
+            }
+        }
+    }
+
+    private enum SubpanelTarget {
+        case audio
+        case hud
+        case cinema
+        case subtitleWorkflow
+        case queue
+    }
+
+    private func openSubpanelFromMenu(_ target: SubpanelTarget) {
+        showPanelMenuSheet = false
+        DispatchQueue.main.async {
+            switch target {
+            case .audio:
+                showAudioSettings = true
+            case .hud:
+                showHUDSettings = true
+            case .cinema:
+                showCinemaSettings = true
+            case .subtitleWorkflow:
+                showSubtitleWorkflow = true
+            case .queue:
+                showQueueManager = true
+            }
+        }
     }
 
     private func formatTime(_ seconds: TimeInterval) -> String {
@@ -918,6 +765,27 @@ struct PlayerScreen: View {
             return String(format: "%.1fk", kValue)
         }
         return "\(hz)Hz"
+    }
+
+    private func detentFromStorage(_ value: String) -> PresentationDetent {
+        switch value {
+        case "small":
+            return .fraction(0.35)
+        case "large":
+            return .large
+        default:
+            return .medium
+        }
+    }
+
+    private func storageValue(for detent: PresentationDetent) -> String {
+        if detent == .large {
+            return "large"
+        }
+        if detent == .medium {
+            return "medium"
+        }
+        return "small"
     }
 
     private var subtitleBottomPadding: CGFloat {
@@ -1074,13 +942,31 @@ struct PlayerScreen: View {
         )
     }
 
+    @MainActor
     private func dismissPlayer() async {
         if sceneCoordinator.isImmersiveOpen {
             await sceneCoordinator.dismissImmersiveSpace {
                 await dismissImmersiveSpace()
             }
         }
+        if usesNativeAVKitPath {
+            nativePlayerController.stop()
+        }
+        sceneCoordinator.playerWindowRequestToken = UUID()
+        sceneCoordinator.shouldShowPlayerWindow = false
+        sceneCoordinator.selectedPlayerItem = nil
+        sceneCoordinator.playerWindowVisible = false
+        dismissWindow(id: SceneCoordinator.playerWindowID)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+            dismissWindow(id: SceneCoordinator.playerWindowID)
+        }
+        openWindow(id: SceneCoordinator.mainWindowID)
         dismiss()
+
+        // Stop engine work after the window close request so UI closes immediately.
+        Task {
+            await playerViewModel.stopPlayback()
+        }
     }
     #else
     private func dismissPlayer() async {

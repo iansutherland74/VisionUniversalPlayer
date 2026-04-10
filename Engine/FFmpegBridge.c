@@ -105,6 +105,13 @@ void ffmpeg_sw_free_frame(uint8_t *data) {
 void ffmpeg_sw_close(int handle) {
     (void)handle;
 }
+int ffmpeg_bridge_is_available(void) {
+    return 0;
+}
+
+int ffmpeg_sw_bridge_is_available(void) {
+    return 0;
+}
 
 #else
 
@@ -115,6 +122,7 @@ void ffmpeg_sw_close(int handle) {
 
 #include <libavformat/avformat.h>
 #include <libavcodec/avcodec.h>
+#include <libavcodec/bsf.h>
 #include <libavutil/avutil.h>
 #include <libavutil/opt.h>
 
@@ -361,4 +369,11 @@ void ffmpeg_sw_close(int handle_id) {
     ffmpeg_close(handle_id);
 }
 
+int ffmpeg_bridge_is_available(void) {
+    return 1;
+}
+
+int ffmpeg_sw_bridge_is_available(void) {
+    return 1;
+}
 #endif // FFMPEG_DEVICE_BUILD

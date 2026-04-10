@@ -5,6 +5,7 @@ struct DetailView: View {
     let onPlay: (MediaItem) -> Void
     @EnvironmentObject private var favoritesStore: MediaFavoritesStore
     #if os(visionOS)
+    @Environment(\.supportsMultipleWindows) private var supportsMultipleWindows
     @Environment(\.openWindow) private var openWindow
     #endif
     
@@ -94,11 +95,13 @@ struct DetailView: View {
             #if os(visionOS)
             if favoritesStore.isFavorite(item) {
                 Button {
-                    openWindow(id: SceneCoordinator.spotlightWindowID, value: item)
+                    if supportsMultipleWindows {
+                        openWindow(id: SceneCoordinator.spotlightWindowID, value: item)
+                    }
                 } label: {
                     HStack {
                         Image(systemName: "sparkles.tv")
-                        Text("Open Spotlight Window")
+                        Text(supportsMultipleWindows ? "Open Spotlight Window" : "Spotlight Requires Multi-Window")
                     }
                     .font(.subheadline.weight(.semibold))
                     .frame(maxWidth: .infinity)
@@ -106,6 +109,7 @@ struct DetailView: View {
                     .background(Color.cyan.opacity(0.14), in: RoundedRectangle(cornerRadius: 10))
                 }
                 .buttonStyle(.plain)
+                .disabled(!supportsMultipleWindows)
                 .padding(.horizontal)
             }
             #endif

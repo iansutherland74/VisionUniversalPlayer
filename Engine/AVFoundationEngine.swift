@@ -1,6 +1,7 @@
 import Foundation
 import AVFoundation
 import Combine
+import QuartzCore
 
 final class AVFoundationEngine: NSObject, VideoOutputEngine {
     private enum TrackSelectionID {
@@ -59,7 +60,10 @@ final class AVFoundationEngine: NSObject, VideoOutputEngine {
 
         let playerItem = AVPlayerItem(url: item.url)
         let outputSettings: [String: Any] = [
-            kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_420YpCbCr8BiPlanarFullRange
+            kCVPixelBufferPixelFormatTypeKey as String: [
+                kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange,
+                kCVPixelFormatType_420YpCbCr8BiPlanarFullRange
+            ]
         ]
         let output = AVPlayerItemVideoOutput(pixelBufferAttributes: outputSettings)
         playerItem.add(output)
@@ -229,8 +233,14 @@ final class AVFoundationEngine: NSObject, VideoOutputEngine {
         output: AVPlayerItemVideoOutput,
         startAtSeconds: TimeInterval?
     ) async {
-        var sentConnected = false
         var sentDimensions = false
+        var sentInitialConnected = false
+        var lastTimeControlStatus: AVPlayer.TimeControlStatus?
+        var stallAttempt = 0
+        var readyStateStartHostTime: CFTimeInterval?
+        let startupHostTime = CACurrentMediaTime()
+        // Track the last status we emitted so we only send on change.
+        var emittedStatus: TransportStatus = .connecting
 
         if let startAtSeconds, startAtSeconds > 0 {
             let start = CMTime(seconds: startAtSeconds, preferredTimescale: 600)
@@ -243,13 +253,70 @@ final class AVFoundationEngine: NSObject, VideoOutputEngine {
         while !Task.isCancelled {
             switch item.status {
             case .unknown:
+                // Some network streams can remain unknown indefinitely on visionOS.
+                // Fail fast so decoder fallback can continue instead of infinite buffering.
+                if !sentInitialConnected,
+                   CACurrentMediaTime() - startupHostTime > 10.0 {
+                    let message = "Timed out preparing stream"
+                    transportStatusSubject.send(.failed(message: message))
+                    await DebugCategory.decoder.errorLog(
+                        "AVFoundation startup timeout",
+                        context: ["timeoutSeconds": "10"]
+                    )
+                    return
+                }
                 break
             case .readyToPlay:
-                if !sentConnected {
-                    refreshMediaSelectionCaches(for: item)
-                    transportStatusSubject.send(.connected)
-                    sentConnected = true
-                    await DebugCategory.decoder.infoLog("AVFoundation transport connected")
+                if readyStateStartHostTime == nil {
+                    readyStateStartHostTime = CACurrentMediaTime()
+                }
+                // item.status == readyToPlay means metadata is loaded; track
+                // timeControlStatus changes to reflect real playback/buffering.
+                let timeControlStatus = player.timeControlStatus
+                if timeControlStatus != lastTimeControlStatus {
+                    lastTimeControlStatus = timeControlStatus
+                    switch timeControlStatus {
+                    case .playing:
+                        // Do not emit connected until first decoded frame arrives.
+                        if sentInitialConnected && emittedStatus != .connected {
+                            stallAttempt = 0
+                            emittedStatus = .connected
+                            transportStatusSubject.send(.connected)
+                            await DebugCategory.decoder.infoLog("AVFoundation transport connected")
+                        }
+                    case .waitingToPlayAtSpecifiedRate:
+                        if sentInitialConnected {
+                            stallAttempt += 1
+                            let nextDelay = min(2.0, 0.5 * Double(stallAttempt))
+                            let reconnecting = TransportStatus.reconnecting(
+                                attempt: stallAttempt,
+                                maxAttempts: 8,
+                                nextDelaySeconds: nextDelay
+                            )
+                            if emittedStatus != reconnecting {
+                                emittedStatus = reconnecting
+                                transportStatusSubject.send(reconnecting)
+                            }
+                        }
+                    case .paused:
+                        break
+                    @unknown default:
+                        break
+                    }
+                }
+
+                // If no first frame appears after item is ready, fail fast so
+                // PlayerViewModel can move to the next decoder candidate.
+                if !sentInitialConnected,
+                   let readyStateStartHostTime,
+                   CACurrentMediaTime() - readyStateStartHostTime > 8.0 {
+                    let message = "Timed out waiting for first video frame"
+                    transportStatusSubject.send(.failed(message: message))
+                    await DebugCategory.decoder.errorLog(
+                        "AVFoundation first-frame timeout",
+                        context: ["timeoutSeconds": "8"]
+                    )
+                    return
                 }
             case .failed:
                 let message = item.error?.localizedDescription ?? "AVPlayer item failed"
@@ -265,8 +332,21 @@ final class AVFoundationEngine: NSObject, VideoOutputEngine {
                 playbackTimeSubject.send(currentTime.seconds)
             }
 
-            if output.hasNewPixelBuffer(forItemTime: currentTime),
-               let pixelBuffer = output.copyPixelBuffer(forItemTime: currentTime, itemTimeForDisplay: nil) {
+                // Use the host-clock-aligned item time so the output vends the frame
+                // that should be displayed RIGHT NOW, not the raw playback position.
+                let hostTime = CACurrentMediaTime()
+                let displayItemTime = output.itemTime(forHostTime: hostTime)
+                let queryTime = displayItemTime.isValid ? displayItemTime : currentTime
+                if output.hasNewPixelBuffer(forItemTime: queryTime),
+                   let pixelBuffer = output.copyPixelBuffer(forItemTime: queryTime, itemTimeForDisplay: nil) {
+                    if !sentInitialConnected {
+                        sentInitialConnected = true
+                        stallAttempt = 0
+                        refreshMediaSelectionCaches(for: item)
+                        emittedStatus = .connected
+                        transportStatusSubject.send(.connected)
+                        await DebugCategory.decoder.infoLog("AVFoundation transport connected")
+                    }
                 if !sentDimensions {
                     sentDimensions = true
                     dimensionSubject.send((

@@ -100,6 +100,18 @@ void ffmpeg_sw_free_frame(uint8_t *data);
  */
 void ffmpeg_sw_close(int handle);
 
+/**
+ * Returns whether the FFmpeg demux/decode bridge is available in this build.
+ * 1 = available, 0 = stubbed/unavailable.
+ */
+int ffmpeg_bridge_is_available(void);
+
+/**
+ * Returns whether the FFmpeg software-decoder bridge is available in this build.
+ * 1 = available, 0 = stubbed/unavailable.
+ */
+int ffmpeg_sw_bridge_is_available(void);
+
 #ifdef __cplusplus
 }
 #endif

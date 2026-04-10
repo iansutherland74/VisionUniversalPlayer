@@ -127,6 +127,7 @@ final class PlayerViewModel: ObservableObject {
     @Published private(set) var subtitleProviderAccessStatusMessage: String = ""
     @Published private(set) var cinemaModeSettings: CinemaModeSettings = .default
     @Published private(set) var hudSettings: HUDSettings = .default
+    @Published var isHUDVisible = false
 
     let stats = PlayerStats()
     let audioEngine = AudioEngine()
@@ -773,7 +774,11 @@ final class PlayerViewModel: ObservableObject {
         let nextEngine: VideoOutputEngine
         switch item.sourceKind {
         case .rawAnnexB:
-            nextEngine = RawStreamEngine()
+            if shouldPreferContainerEngine(for: item.url) {
+                nextEngine = AVFoundationEngine()
+            } else {
+                nextEngine = RawStreamEngine()
+            }
         case .ffmpegContainer:
             switch item.codec {
             case .h264, .hevc:
@@ -831,33 +836,58 @@ final class PlayerViewModel: ObservableObject {
 
         suppressRepeatOneForInternalStop = false
         transportStatus = .failed(message: "No compatible decoder path for codec \(item.codec.rawValue)")
+        isPlaying = false
+        isBuffering = false
         stats.error = "Decoder fallback exhausted for codec \(item.codec.rawValue)"
         stats.decodePathDisplay = "Unavailable"
     }
 
     private func decoderCandidates(for item: MediaItem, initialEngine: VideoOutputEngine) -> [(engine: VideoOutputEngine, pathLabel: String, timeoutNanoseconds: UInt64)] {
-        let timeout: UInt64 = 4_000_000_000
+        let timeout: UInt64 = 12_000_000_000
+        let ffmpegBridgeAvailable = ffmpeg_bridge_is_available() != 0
+        let ffmpegSoftwareBridgeAvailable = ffmpeg_sw_bridge_is_available() != 0
 
         switch item.sourceKind {
         case .rawAnnexB:
+            if shouldPreferContainerEngine(for: item.url) {
+                return [(AVFoundationEngine(), "System (AVFoundation)", timeout)]
+            }
             return [(initialEngine, "HW (Annex-B)", timeout)]
         case .mvhevcLocal:
             return [(initialEngine, "HW (MV-HEVC)", timeout)]
         case .ffmpegContainer:
             switch item.codec {
             case .h264, .hevc:
-                return [
-                    (initialEngine, "HW (VideoToolbox)", timeout),
-                    (AVFoundationEngine(), "System (AVFoundation)", timeout),
-                    (FFmpegSoftwareEngine(), "SW (FFmpeg)", timeout)
+                var candidates: [(engine: VideoOutputEngine, pathLabel: String, timeoutNanoseconds: UInt64)] = [
+                    (AVFoundationEngine(), "System (AVFoundation)", timeout)
                 ]
+                if ffmpegBridgeAvailable {
+                    candidates.insert((initialEngine, "HW (VideoToolbox)", timeout), at: 0)
+                }
+                if ffmpegSoftwareBridgeAvailable {
+                    candidates.append((FFmpegSoftwareEngine(), "SW (FFmpeg)", timeout))
+                }
+                return candidates
             case .av1, .vp9, .vp8, .mpeg2:
-                return [
-                    (initialEngine, "System (AVFoundation)", timeout),
-                    (FFmpegSoftwareEngine(), "SW (FFmpeg)", timeout)
+                var candidates: [(engine: VideoOutputEngine, pathLabel: String, timeoutNanoseconds: UInt64)] = [
+                    (initialEngine, "System (AVFoundation)", timeout)
                 ]
+                if ffmpegSoftwareBridgeAvailable {
+                    candidates.append((FFmpegSoftwareEngine(), "SW (FFmpeg)", timeout))
+                }
+                return candidates
             }
         }
+    }
+
+    private func shouldPreferContainerEngine(for url: URL) -> Bool {
+        let ext = url.pathExtension.lowercased()
+        if ["m3u8", "mp4", "mov", "mkv", "m4v", "webm", "ts"].contains(ext) {
+            return true
+        }
+
+        let absolute = url.absoluteString.lowercased()
+        return absolute.contains(".m3u8") || absolute.contains("playlist")
     }
 
     private func waitForEngineConnection(_ engine: VideoOutputEngine, timeoutNanoseconds: UInt64) async -> Bool {
@@ -2196,6 +2226,7 @@ final class PlayerViewModel: ObservableObject {
 
     private func subscribe(to engine: VideoOutputEngine) {
         pixelBufferSubscription = engine.pixelBufferPublisher
+            .receive(on: DispatchQueue.main)
             .sink { [weak self] buffer in
                 guard let self else { return }
 
@@ -2227,6 +2258,7 @@ final class PlayerViewModel: ObservableObject {
             }
 
         dimensionSubscription = engine.dimensionPublisher
+            .receive(on: DispatchQueue.main)
             .sink { [weak self] dims in
                 guard let self else { return }
                 stats.videoWidth = Int(dims.width)
@@ -2322,6 +2354,10 @@ final class PlayerViewModel: ObservableObject {
                 let previousBufferingState = isBuffering
 
                 if !isPlaying {
+                    isBuffering = false
+                } else if case .failed = transportStatus {
+                    isBuffering = false
+                } else if case .stopped = transportStatus {
                     isBuffering = false
                 } else if let lastFrameReceivedAt {
                     let elapsed = now.timeIntervalSince(lastFrameReceivedAt)

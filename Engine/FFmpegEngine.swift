@@ -105,6 +105,13 @@ class FFmpegEngine: NSObject, VideoOutputEngine, VideoDecoderDelegate {
     func start(item: MediaItem, startAtSeconds: TimeInterval?) async {
         isRunning = true
         transportStatusSubject.send(.connecting)
+        if ffmpeg_bridge_is_available() == 0 {
+            let message = "FFmpeg bridge unavailable in this build"
+            transportStatusSubject.send(.failed(message: message))
+            await DebugCategory.demuxer.errorLog(message)
+            isRunning = false
+            return
+        }
         await DebugCategory.demuxer.infoLog(
             "Starting FFmpeg engine",
             context: [

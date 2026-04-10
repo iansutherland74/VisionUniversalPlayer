@@ -7,6 +7,7 @@ class RawStreamEngine: NSObject, VideoOutputEngine, VideoDecoderDelegate {
     private enum StreamConnectionError: LocalizedError {
         case invalidHTTPStatus(Int)
         case streamEnded
+        case firstFrameTimeout
 
         var errorDescription: String? {
             switch self {
@@ -14,6 +15,8 @@ class RawStreamEngine: NSObject, VideoOutputEngine, VideoDecoderDelegate {
                 return "Invalid HTTP status: \(statusCode)"
             case .streamEnded:
                 return "Stream ended unexpectedly"
+            case .firstFrameTimeout:
+                return "Timed out waiting for first decoded frame"
             }
         }
     }
@@ -49,6 +52,8 @@ class RawStreamEngine: NSObject, VideoOutputEngine, VideoDecoderDelegate {
     private var playbackRate: Double = 1.0
     private let reconnectBaseDelaySeconds: Double = 0.35
     private let reconnectMaxDelaySeconds: Double = 6.0
+    private let firstFrameTimeoutSeconds: TimeInterval = 8.0
+    private var hasEmittedConnected = false
     
     override init() {
         super.init()
@@ -61,6 +66,7 @@ class RawStreamEngine: NSObject, VideoOutputEngine, VideoDecoderDelegate {
     
     func start(item: MediaItem, startAtSeconds: TimeInterval?) async {
         isRunning = true
+        hasEmittedConnected = false
         transportStatusSubject.send(.connecting)
         await DebugCategory.network.infoLog(
             "Starting raw stream engine",
@@ -121,15 +127,20 @@ class RawStreamEngine: NSObject, VideoOutputEngine, VideoDecoderDelegate {
                 }
 
                 reconnectAttempt = 0
-                transportStatusSubject.send(.connected)
                 await DebugCategory.network.infoLog(
-                    "Raw stream connected",
+                    "Raw stream transport connected (awaiting first frame)",
                     context: ["url": item.url.absoluteString]
                 )
                 var currentPTS: CMTime = .zero
+                let connectionStartedAt = Date()
 
                 for try await byte in asyncData {
                     if !isRunning { break }
+
+                    if frameCounter == 0,
+                       Date().timeIntervalSince(connectionStartedAt) > firstFrameTimeoutSeconds {
+                        throw StreamConnectionError.firstFrameTimeout
+                    }
 
                     buffer.append(byte)
 
@@ -228,6 +239,10 @@ class RawStreamEngine: NSObject, VideoOutputEngine, VideoDecoderDelegate {
     func decoderDidProducePixelBuffer(_ pixelBuffer: CVPixelBuffer, pts: CMTime) {
         if isRunning {
             DispatchQueue.main.async {
+                if !self.hasEmittedConnected {
+                    self.hasEmittedConnected = true
+                    self.transportStatusSubject.send(.connected)
+                }
                 self.pixelBufferSubject.send(pixelBuffer)
                 if pts.isValid {
                     self.playbackTimeSubject.send(pts.seconds)

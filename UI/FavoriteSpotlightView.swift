@@ -3,9 +3,11 @@ import SwiftUI
 struct FavoriteSpotlightView: View {
     let item: MediaItem
     @ObservedObject var playerViewModel: PlayerViewModel
+    @EnvironmentObject private var sceneCoordinator: SceneCoordinator
 
     #if os(visionOS)
     @Environment(\.dismissWindow) private var dismissWindow
+    @Environment(\.openWindow) private var openWindow
     #endif
 
     var body: some View {
@@ -77,9 +79,22 @@ struct FavoriteSpotlightView: View {
 
                 HStack(spacing: 10) {
                     Button {
+                        DebugCategory.navigation.infoLog(
+                            "Play tapped in FavoriteSpotlightView",
+                            context: ["title": item.title]
+                        )
                         Task {
                             await playerViewModel.playMedia(item)
+                            DebugCategory.navigation.infoLog(
+                                "FavoriteSpotlightView playMedia completed",
+                                context: ["title": item.title]
+                            )
                         }
+                        #if os(visionOS)
+                        sceneCoordinator.selectedPlayerItem = item
+                        sceneCoordinator.shouldShowPlayerWindow = true
+                        openWindow(id: SceneCoordinator.playerWindowID)
+                        #endif
                     } label: {
                         Label("Play", systemImage: "play.fill")
                             .font(.subheadline.weight(.semibold))

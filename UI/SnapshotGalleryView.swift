@@ -2,6 +2,7 @@ import SwiftUI
 
 struct SnapshotGalleryView: View {
     @ObservedObject var playerViewModel: PlayerViewModel
+    @Environment(\.dismiss) private var dismiss
 
     var body: some View {
         NavigationStack {
@@ -22,16 +23,22 @@ struct SnapshotGalleryView: View {
             .navigationTitle("Snapshots")
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
-                    Button("Refresh") {
-                        playerViewModel.refreshSnapshotGallery()
+                    Button("Close") {
+                        dismiss()
                     }
                 }
 
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button("Clear All", role: .destructive) {
-                        playerViewModel.clearSnapshots()
+                    HStack {
+                        Button("Refresh") {
+                            playerViewModel.refreshSnapshotGallery()
+                        }
+
+                        Button("Clear All", role: .destructive) {
+                            playerViewModel.clearSnapshots()
+                        }
+                        .disabled(playerViewModel.snapshotFiles.isEmpty)
                     }
-                    .disabled(playerViewModel.snapshotFiles.isEmpty)
                 }
             }
         }

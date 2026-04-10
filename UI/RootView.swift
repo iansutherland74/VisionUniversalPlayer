@@ -5,6 +5,12 @@ struct RootView: View {
     @State private var selectedItem: MediaItem?
     @State private var showingPlayer = false
     @StateObject private var favoritesStore = MediaFavoritesStore()
+    @EnvironmentObject private var sceneCoordinator: SceneCoordinator
+    #if os(visionOS)
+    @Environment(\.supportsMultipleWindows) private var supportsMultipleWindows
+    @Environment(\.openWindow) private var openWindow
+    @Environment(\.dismissWindow) private var dismissWindow
+    #endif
 
     private var allLibraryItems: [MediaItem] {
         TestMediaPack.groupedMedia.flatMap { $0.items }
@@ -21,6 +27,7 @@ struct RootView: View {
                     Label("Library", systemImage: "film.stack")
                 }
 
+            #if os(visionOS)
             IPTVHomeView { channel in
                 let media = MediaItem(
                     title: channel.name,
@@ -32,11 +39,9 @@ struct RootView: View {
                     thumbnailURL: channel.logoURL,
                     duration: nil
                 )
-                selectedItem = media
-                Task {
+                presentPlayer(media) {
                     await playerViewModel.playMedia(media)
                 }
-                showingPlayer = true
             }
             .tabItem {
                 Label("IPTV", systemImage: "tv")
@@ -46,6 +51,7 @@ struct RootView: View {
                 .tabItem {
                     Label("Vision UI", systemImage: "sparkles.rectangle.stack")
                 }
+            #endif
         }
         .sheet(isPresented: $showingPlayer) {
             if let selectedItem {
@@ -109,11 +115,9 @@ struct RootView: View {
 
                     if !favoriteItems.isEmpty {
                         FavoritesShelfRow(items: favoriteItems) { item in
-                            selectedItem = item
-                            Task {
+                            presentPlayer(item) {
                                 await playerViewModel.playQueue(favoriteItems, startingAt: item)
                             }
-                            showingPlayer = true
                         } onAddToQueue: { item in
                             playerViewModel.appendToQueue(item)
                         } onPlayNext: { item in
@@ -123,11 +127,9 @@ struct RootView: View {
 
                     ForEach(TestMediaPack.groupedMedia, id: \.category) { section in
                         MediaRow(title: section.category, items: section.items) { item in
-                            selectedItem = item
-                            Task {
+                            presentPlayer(item) {
                                 await playerViewModel.playQueue(section.items, startingAt: item)
                             }
-                            showingPlayer = true
                         } onAddToQueue: { item in
                             playerViewModel.appendToQueue(item)
                         } onPlayNext: { item in
@@ -156,6 +158,107 @@ struct RootView: View {
             .padding(.vertical, 6)
             .background(.white.opacity(0.12), in: Capsule())
     }
+
+    private func presentPlayer(_ item: MediaItem, startPlayback: @escaping @Sendable () async -> Void) {
+        DebugCategory.navigation.infoLog(
+            "Play tapped in RootView",
+            context: [
+                "title": item.title,
+                "url": item.url.absoluteString,
+                "sourceKind": String(describing: item.sourceKind),
+                "vrFormat": item.vrFormat.rawValue
+            ]
+        )
+
+        Task {
+            await startPlayback()
+            DebugCategory.navigation.infoLog(
+                "RootView startPlayback completed",
+                context: ["title": item.title]
+            )
+        }
+        selectedItem = item
+        #if os(visionOS)
+        sceneCoordinator.selectedPlayerItem = item
+        requestPlayerWindowOpen(for: item)
+        #else
+        selectedItem = item
+        showingPlayer = true
+        #endif
+    }
+
+    #if os(visionOS)
+    private func requestPlayerWindowOpen(for item: MediaItem) {
+        let requestToken = UUID()
+        sceneCoordinator.playerWindowRequestToken = requestToken
+
+        func request(attempt: Int) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + (attempt == 0 ? 0 : 0.2)) {
+                guard self.sceneCoordinator.playerWindowRequestToken == requestToken else {
+                    DebugCategory.navigation.infoLog(
+                        "RootView skipped stale player-window open request",
+                        context: ["attempt": "\(attempt + 1)", "title": item.title]
+                    )
+                    return
+                }
+
+                guard self.sceneCoordinator.selectedPlayerItem?.id == item.id else {
+                    DebugCategory.navigation.infoLog(
+                        "RootView canceled player-window open; selected item changed",
+                        context: ["attempt": "\(attempt + 1)", "title": item.title]
+                    )
+                    return
+                }
+
+                if self.sceneCoordinator.playerWindowVisible {
+                    self.dismissWindow(id: SceneCoordinator.mainWindowID)
+                    DebugCategory.navigation.infoLog(
+                        "Player window already visible",
+                        context: ["attempt": "\(attempt)", "title": item.title]
+                    )
+                    return
+                }
+
+                self.sceneCoordinator.shouldShowPlayerWindow = true
+                self.openWindow(id: SceneCoordinator.playerWindowID)
+                DebugCategory.navigation.infoLog(
+                    "RootView requested openWindow",
+                    context: [
+                        "windowID": SceneCoordinator.playerWindowID,
+                        "title": item.title,
+                        "attempt": "\(attempt + 1)"
+                    ]
+                )
+
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
+                    if self.sceneCoordinator.playerWindowVisible {
+                        self.dismissWindow(id: SceneCoordinator.mainWindowID)
+                        DebugCategory.navigation.infoLog(
+                            "RootView dismissed main window after player became visible",
+                            context: ["title": item.title]
+                        )
+                    }
+                }
+
+                if attempt < 2 {
+                    request(attempt: attempt + 1)
+                } else {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+                        if !self.sceneCoordinator.playerWindowVisible {
+                            self.showingPlayer = true
+                            DebugCategory.navigation.errorLog(
+                                "Player window failed to become visible after retries",
+                                context: ["title": item.title]
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        request(attempt: 0)
+    }
+    #endif
 }
 
 #Preview {
