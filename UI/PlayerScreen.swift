@@ -319,7 +319,10 @@ struct PlayerScreen: View {
                 if usesNativeAVKitPath {
                     nativePlayerController.play()
                 } else {
-                    await playerViewModel.playMedia(item)
+                    let isSameItemAlreadyActive = playerViewModel.currentMedia?.id == item.id
+                    if !isSameItemAlreadyActive {
+                        await playerViewModel.playMedia(item)
+                    }
                 }
             }
 
