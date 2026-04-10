@@ -22,6 +22,7 @@ final class SceneCoordinator: ObservableObject {
     @Published private(set) var immersiveState: ImmersiveState = .closed
     @Published var shouldShowPlayerWindow: Bool = false  // Only show window if explicitly opened
     @Published var hasInitializedWindows: Bool = false  // Track if we've dismissed restored windows
+    @Published var playerLaunchDebug: String = "idle"
 
     var isImmersiveOpen: Bool {
         immersiveState == .open
@@ -29,6 +30,10 @@ final class SceneCoordinator: ObservableObject {
 
     var isImmersiveTransitioning: Bool {
         immersiveState == .inTransition
+    }
+
+    func markPlayerLaunch(_ message: String) {
+        playerLaunchDebug = message
     }
 
     func openImmersiveSpace(using action: @escaping () async -> Bool) async {

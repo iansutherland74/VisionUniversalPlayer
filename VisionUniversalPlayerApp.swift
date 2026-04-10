@@ -75,6 +75,7 @@ struct PlayerWindowContainer: View {
             PlayerScreen(item: item, playerViewModel: playerViewModel)
                 .onAppear {
                     sceneCoordinator.playerWindowVisible = true
+                    sceneCoordinator.markPlayerLaunch("PlayerWindowContainer onAppear")
                     DebugCategory.navigation.infoLog(
                         "PlayerWindowContainer showing PlayerScreen",
                         context: ["title": item.title]
@@ -84,6 +85,7 @@ struct PlayerWindowContainer: View {
                     sceneCoordinator.playerWindowVisible = false
                     sceneCoordinator.shouldShowPlayerWindow = false
                     sceneCoordinator.selectedPlayerItem = nil
+                    sceneCoordinator.markPlayerLaunch("PlayerWindowContainer onDisappear")
                     DebugCategory.navigation.infoLog("PlayerWindowContainer PlayerScreen disappeared")
                 }
         } else {
@@ -92,6 +94,7 @@ struct PlayerWindowContainer: View {
                     // During open-window transitions, selectedPlayerItem can lag one render pass.
                     // Never dismiss in that transient state or the player window may close immediately.
                     if sceneCoordinator.shouldShowPlayerWindow {
+                        sceneCoordinator.markPlayerLaunch("container waiting for selected item")
                         DebugCategory.navigation.infoLog(
                             "PlayerWindowContainer waiting for selected item during open transition"
                         )

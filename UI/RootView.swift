@@ -64,6 +64,11 @@ struct RootView: View {
                 }
             #endif
         }
+        #if os(visionOS)
+        .overlay(alignment: .bottomLeading) {
+            playerLaunchDebugOverlay
+        }
+        #endif
         .sheet(isPresented: playerSheetBinding) {
             if let selectedItem {
                 NavigationStack {
@@ -79,6 +84,26 @@ struct RootView: View {
         }
         #endif
     }
+
+    #if os(visionOS)
+    private var playerLaunchDebugOverlay: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text("LaunchDebug")
+                .font(.caption2.weight(.semibold))
+            Text("item=\(sceneCoordinator.selectedPlayerItem?.title ?? "nil")")
+            Text("show=\(sceneCoordinator.shouldShowPlayerWindow ? "1" : "0") visible=\(sceneCoordinator.playerWindowVisible ? "1" : "0")")
+            Text("token=\(sceneCoordinator.playerWindowRequestToken.uuidString.prefix(8))")
+            Text("state=\(sceneCoordinator.playerLaunchDebug)")
+                .lineLimit(2)
+        }
+        .font(.caption2.monospaced())
+        .padding(8)
+        .background(Color.black.opacity(0.62), in: RoundedRectangle(cornerRadius: 8))
+        .foregroundStyle(.white)
+        .padding(.leading, 12)
+        .padding(.bottom, 12)
+    }
+    #endif
 
     private var vodBrowser: some View {
         NavigationStack {
@@ -190,6 +215,7 @@ struct RootView: View {
 
         Task {
             await startPlayback()
+            sceneCoordinator.markPlayerLaunch("startPlayback completed")
             DebugCategory.navigation.infoLog(
                 "RootView startPlayback completed",
                 context: ["title": item.title]
@@ -199,6 +225,7 @@ struct RootView: View {
         #if os(visionOS)
         sceneCoordinator.selectedPlayerItem = item
         sceneCoordinator.shouldShowPlayerWindow = true
+        sceneCoordinator.markPlayerLaunch("presentPlayer queued")
         requestPlayerWindowOpen(for: item)
         #else
         selectedItem = item
@@ -214,6 +241,7 @@ struct RootView: View {
         func request(attempt: Int) {
             DispatchQueue.main.asyncAfter(deadline: .now() + (attempt == 0 ? 0 : 0.25)) {
                 guard self.sceneCoordinator.playerWindowRequestToken == requestToken else {
+                    self.sceneCoordinator.markPlayerLaunch("stale token dropped")
                     DebugCategory.navigation.infoLog(
                         "RootView skipped stale player-window open request",
                         context: ["attempt": "\(attempt + 1)", "title": item.title]
@@ -222,6 +250,7 @@ struct RootView: View {
                 }
 
                 guard self.sceneCoordinator.selectedPlayerItem?.id == item.id else {
+                    self.sceneCoordinator.markPlayerLaunch("selected item mismatch")
                     DebugCategory.navigation.infoLog(
                         "RootView canceled player-window open; selected item changed",
                         context: ["attempt": "\(attempt + 1)", "title": item.title]
@@ -230,6 +259,7 @@ struct RootView: View {
                 }
 
                 if self.sceneCoordinator.playerWindowVisible {
+                    self.sceneCoordinator.markPlayerLaunch("player window visible")
                     self.dismissWindow(id: SceneCoordinator.mainWindowID)
                     DebugCategory.navigation.infoLog(
                         "Player window already visible",
@@ -240,6 +270,7 @@ struct RootView: View {
 
                 self.sceneCoordinator.shouldShowPlayerWindow = true
                 self.openWindow(id: SceneCoordinator.playerWindowID)
+                self.sceneCoordinator.markPlayerLaunch("openWindow attempt \(attempt + 1)")
                 DebugCategory.navigation.infoLog(
                     "RootView requested openWindow",
                     context: [
@@ -251,6 +282,7 @@ struct RootView: View {
 
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
                     if self.sceneCoordinator.playerWindowVisible {
+                        self.sceneCoordinator.markPlayerLaunch("main dismissed after player visible")
                         self.dismissWindow(id: SceneCoordinator.mainWindowID)
                         DebugCategory.navigation.infoLog(
                             "RootView dismissed main window after player became visible",
@@ -266,6 +298,7 @@ struct RootView: View {
                         if !self.sceneCoordinator.playerWindowVisible {
                             self.sceneCoordinator.shouldShowPlayerWindow = true
                             self.openWindow(id: SceneCoordinator.playerWindowID)
+                            self.sceneCoordinator.markPlayerLaunch("final open retry fired")
                             DebugCategory.navigation.errorLog(
                                 "Player window failed to become visible after retries",
                                 context: ["title": item.title]
