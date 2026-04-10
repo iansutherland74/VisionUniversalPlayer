@@ -89,6 +89,15 @@ struct PlayerWindowContainer: View {
         } else {
             EmptyView()
                 .onAppear {
+                    // During open-window transitions, selectedPlayerItem can lag one render pass.
+                    // Never dismiss in that transient state or the player window may close immediately.
+                    if sceneCoordinator.shouldShowPlayerWindow {
+                        DebugCategory.navigation.infoLog(
+                            "PlayerWindowContainer waiting for selected item during open transition"
+                        )
+                        return
+                    }
+
                     sceneCoordinator.playerWindowVisible = false
                     if !sceneCoordinator.hasInitializedWindows {
                         sceneCoordinator.hasInitializedWindows = true
