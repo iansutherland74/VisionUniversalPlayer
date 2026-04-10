@@ -27,6 +27,9 @@ struct TestMediaPack {
     private static let onlineMP4Direct = URL(string: "https://vjs.zencdn.net/v/oceans.mp4")!
     private static let onlineMP4Backup = URL(string: "https://media.w3.org/2010/05/sintel/trailer.mp4")!
     
+    // Stereoscopic test sources (SBS format)
+    private static let stereoTestSBS = onlineMP4Backup  // Use known-working source for now
+    
     // Fallback to bundled or HLS if direct MP4 fails
     private static let sampleMP4A = bundled2DSampleURL() ?? URL(string: "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8")!
     private static let sampleMP4B = bundled2DSampleURL() ?? URL(string: "https://devstreaming-cdn.apple.com/videos/streaming/examples/img_bipbop_adv_example_ts/master.m3u8")!
@@ -77,28 +80,18 @@ struct TestMediaPack {
         )
     ]
 
-    // MARK: - 3D Stereoscopic Content
+    // MARK: - 3D Stereoscopic Content (Intel: WIP - Metal render path)
 
     static let stereo3DVideos: [MediaItem] = [
         MediaItem(
-            title: "3D Movie - Side-by-Side",
-            description: "SBS format test (uses flat sample source)",
-            url: sampleMP4A,
+            title: "3D Test - Coming Soon",
+            description: "3D rendering path under development",
+            url: onlineMP4Backup,
             sourceKind: .ffmpegContainer,
             codec: .h264,
-            vrFormat: .sideBySide3D,
+            vrFormat: .flat2D,  // Temporarily flat until 3D Metal path is ready
             thumbnailURL: nil,
-            duration: 10
-        ),
-        MediaItem(
-            title: "3D Action - Top-and-Bottom",
-            description: "TAB format test (uses flat sample source)",
-            url: sampleMP4B,
-            sourceKind: .ffmpegContainer,
-            codec: .h264,
-            vrFormat: .topBottom3D,
-            thumbnailURL: nil,
-            duration: 30
+            duration: nil
         )
     ]
 
